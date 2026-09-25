@@ -1,0 +1,30 @@
+# Failed-accept cost per site: the audit sessions (time.confirm = none,
+# session_seed 1000, 20 runs per config, durations sampled). Per comparison
+# site: drawn flips, the share refused, and the solver time the refused
+# trials took (wall time, a reading), in total and against all solver time.
+# The five costliest sites per dataset are listed.
+clean        sites   2  flips drawn    721  refused    202 (0.28)  refused-trial time 0.5 ms = 0.01 of solver time
+    site     4  drawn    394  refused share 0.26  refused-trial time      0.3 ms  per refusal    2.6 us
+    site     0  drawn    327  refused share 0.31  refused-trial time      0.2 ms  per refusal    2.1 us
+recv_anchor  sites   2  flips drawn    723  refused    165 (0.23)  refused-trial time 0.4 ms = 0.01 of solver time
+    site     3  drawn    412  refused share 0.26  refused-trial time      0.3 ms  per refusal    2.6 us
+    site     0  drawn    311  refused share 0.19  refused-trial time      0.1 ms  per refusal    2.2 us
+cached_flag  sites   2  flips drawn   7210  refused   4103 (0.57)  refused-trial time 4.9 ms = 0.07 of solver time
+    site     4  drawn   6774  refused share 0.59  refused-trial time      4.5 ms  per refusal    1.1 us
+    site     3  drawn    436  refused share 0.30  refused-trial time      0.4 ms  per refusal    2.8 us
+forms        sites   3  flips drawn   8944  refused   4767 (0.53)  refused-trial time 39.5 ms = 0.09 of solver time
+    site     6  drawn   4496  refused share 1.00  refused-trial time     37.4 ms  per refusal    8.3 us
+    site     5  drawn   4133  refused share 0.05  refused-trial time      2.0 ms  per refusal    9.4 us
+    site     0  drawn    315  refused share 0.19  refused-trial time      0.1 ms  per refusal    2.2 us
+idioms       sites   6  flips drawn  35907  refused  17310 (0.48)  refused-trial time 210.6 ms = 0.14 of solver time
+    site    18  drawn   4194  refused share 0.99  refused-trial time     89.3 ms  per refusal   21.4 us
+    site     7  drawn  10745  refused share 0.50  refused-trial time     43.4 ms  per refusal    8.0 us
+    site     3  drawn  10405  refused share 0.27  refused-trial time     36.8 ms  per refusal   13.1 us
+    site    12  drawn   6391  refused share 0.66  refused-trial time     22.8 ms  per refusal    5.4 us
+    site    16  drawn   3848  refused share 0.14  refused-trial time     17.9 ms  per refusal   32.2 us
+crossclock   sites  10  flips drawn  48964  refused  28174 (0.58)  refused-trial time 995.3 ms = 0.19 of solver time
+    site    22  drawn   6513  refused share 0.58  refused-trial time    242.8 ms  per refusal   64.5 us
+    site    14  drawn   6835  refused share 0.88  refused-trial time    153.9 ms  per refusal   25.4 us
+    site     8  drawn   7175  refused share 0.47  refused-trial time    141.8 ms  per refusal   42.0 us
+    site    10  drawn   7090  refused share 0.69  refused-trial time     93.1 ms  per refusal   19.0 us
+    site    18  drawn   6873  refused share 0.37  refused-trial time     88.1 ms  per refusal   34.8 us

@@ -80,7 +80,7 @@ type ClusterParams {
 2. **`role Node(cluster: Cluster)`** block:
    - Identity and peers as variable initializers: `var me: int = index_of(cluster.nodes, self)!;` and `var replicas: list<Node> = cluster.nodes;`. They run at startup and again on recovery, so neither needs to be rebuilt by hand.
    - Remaining state variables with initial values
-   - `fn Init()` — no parameters; side effects only, such as spawning timeout monitors
+   - `fn Init()` — no parameters; side effects only, such as `spawn monitor_timeouts()`
    - `async fn RecoverInit()` — no parameters; if crash recovery is in scope
    - Protocol handlers (async functions for message processing)
    - Timeout monitors if needed (`async fn monitor_timeouts()`)
@@ -126,7 +126,7 @@ fn Main(p: ClusterParams): Cluster? {
 - Use `persist_data()` before yield points if crash recovery is in scope
 - Collections are immutable — use `:=` for updates
 - Sync functions are atomic and cannot use channel ops
-- Calling an async function spawns a background task — don't await if you want it to run concurrently
+- A local async call runs in the caller and becomes a background task only when it reaches its first yield point. Write `spawn f(args)` when the caller must not wait even for that -- a timeout monitor, say -- and `<- f(args)` when it wants the value. `spawn` applies to a local async call only, never to an RPC or a sync call.
 
 ## Phase 4: Review
 
@@ -134,7 +134,7 @@ Before moving to testing:
 
 1. Verify every pseudocode procedure has a corresponding Spur function
 2. Verify the client's `Read`/`Write` don't return prematurely
-3. Verify variable initializers derive identity and peers from the role parameter, and that `Init` spawns the background tasks (timeout monitors, etc.)
+3. Verify variable initializers derive identity and peers from the role parameter, and that `Init` spawns the background tasks (timeout monitors, etc.) with `spawn`
 4. If crash recovery is in scope: verify `persist_data` is called for critical state before yield points
 5. Check all message type match arms are handled
 6. Run `spur deploy bin/spur/<ProtocolName>.spur --params '{...}'` and confirm the node count, paths and groups are what the design intended

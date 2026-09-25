@@ -1,0 +1,12 @@
+backend yices level Durations threads  1:     4519 runs/s, open outcomes 8551
+backend yices level Durations threads  2:     5982 runs/s, open outcomes 8551
+backend yices level Durations threads  4:     5197 runs/s, open outcomes 8551
+backend yices level Durations threads  8:     4472 runs/s, open outcomes 8551
+backend yices level Durations threads 16:     3542 runs/s, open outcomes 8551
+backend yices level Durations threads 30:     2635 runs/s, open outcomes 8551
+backend z3 level Durations threads  1:      677 runs/s, open outcomes 8551
+backend z3 level Durations threads  2:     1092 runs/s, open outcomes 8551
+backend z3 level Durations threads  4:     1717 runs/s, open outcomes 8551
+backend z3 level Durations threads  8:     1944 runs/s, open outcomes 8551
+backend z3 level Durations threads 16:     3375 runs/s, open outcomes 8551
+backend z3 level Durations threads 30:     4547 runs/s, open outcomes 8551

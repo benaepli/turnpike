@@ -3,8 +3,8 @@
 // whoever calls it decides between invocations whether to buy another, so
 // terminating a session early is simply not calling `chunk` again.
 //
-// Run from research/orchestrator so its node_modules resolve:
-//   cd research/orchestrator && npx tsx ../lite/grader.ts <command> [--flags]
+// Run from research/harness so its node_modules resolve:
+//   cd research/harness && npx tsx ../lite/grader.ts <command> [--flags]
 //
 // Commands:
 //   start    --name <slug> --cand-bin <path> --base-bin <path>
@@ -31,14 +31,15 @@ import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 
-import { HARD_LIMITS, loadPolicy, type Policy } from "../orchestrator/src/policy.js";
-import { runOneEvaluation, selfTestRunIdentity, sumVariantCells, variantMetrics, type EvalContext } from "../orchestrator/src/evaluate.js";
+import { HARD_LIMITS, loadPolicy, type Policy } from "../harness/src/policy.js";
+import { holdMeasuringLock } from "../harness/src/measuring.js";
+import { runOneEvaluation, selfTestRunIdentity, sumVariantCells, variantMetrics, type EvalContext } from "../harness/src/evaluate.js";
 import {
   SYNTHETIC_CHUNK, canStillAdvance, classifyChunkTiming, classifyPooled, decideSequential, initialSeqState, medianRps,
   pooledCountsOf, pooledFromSeq, pooledLadder, selfTestGateConsistency, seqRuleOf, syntheticEvaluation,
   storablePosteriors, type PooledCounts, type SeqDecision, type SeqRule,
-} from "../orchestrator/src/sequential.js";
-import { buildStopperPayload, type StopperPayload } from "../orchestrator/src/stopper.js";
+} from "../harness/src/sequential.js";
+import { buildStopperPayload, type StopperPayload } from "../harness/src/stopper.js";
 import {
   CROSS_BINARY_NULL_FLOOR, EPOCH_DRIFT_WARN, EPOCH_THROUGHPUT_FLOOR, INTERNAL_MIN_EFFECT, INTERNAL_OVERDISPERSION, INTERNAL_Z, MERGE_Z,
   NON_DECLARABLE_BITS, PRIMARY_RUNG, RATE_EXCLUDED_ARM_MODES, RULE_VERSION, VARIANT_BITS, addStratum,
@@ -46,13 +47,13 @@ import {
   probeFreeScope, projectedEpochThroughput, ruleVerdict, selfTestInternalPrimary, variantBitsMissingFromSource,
   variantContrasts,
   type FinalGateInputs, type InternalPrimary, type MergeFigures, type RatePrior, type VariantContrast,
-} from "../orchestrator/src/decide.js";
-import { CAMPAIGN_ONLY_KEYS, ROOT, cleanupDir, explore, freeDiskGb, materializeConfig, porcupine, resolveRoot, runVariantTable, selfTestRunsTableScanner } from "../orchestrator/src/runners.js";
-import { selfTestPosteriors, selfTestStats } from "../orchestrator/src/stats.js";
-import { Evaluation, SeqState, type RunRow, type RunVariantRow, type VariantMetrics } from "../orchestrator/src/schemas.js";
+} from "../harness/src/decide.js";
+import { CAMPAIGN_ONLY_KEYS, ROOT, cleanupDir, explore, exploreFailure, freeDiskGb, materializeConfig, porcupine, resolveRoot, runVariantTable, selfTestRunsTableScanner } from "../harness/src/runners.js";
+import { selfTestPosteriors, selfTestStats } from "../harness/src/stats.js";
+import { Evaluation, SeqState, type RunRow, type RunVariantRow, type VariantMetrics } from "../harness/src/schemas.js";
 import { RECORDED_DECLARATIONS, recordedRuleVersionFor } from "./declarations.js";
 
-// The orchestrator modules narrate progress on stdout; this process promises
+// The harness modules narrate progress on stdout; this process promises
 // its caller a single JSON object there, so their narration moves to stderr.
 console.log = (...args: unknown[]): void => { console.error(...args); };
 
@@ -75,7 +76,7 @@ interface LiteConfig {
   relevantFiles: string[];
   budgets: { chunkSec: number; maxChunks: number; minChunks: number; rayonThreads: number; maxBuildSeconds: number; epochThroughputFloor?: number };
   violationPrior: RatePrior | null;
-  allowBigLoopBaselineRecord: boolean;
+  allowRecordedBaseline: boolean;
 }
 
 function liteConfig(): LiteConfig {
@@ -84,7 +85,7 @@ function liteConfig(): LiteConfig {
 
 // The cumulative throughput a merge may not take the epoch below, as a
 // fraction of the frozen epoch baseline. lite.json may set it; the
-// orchestrator's constant is the fallback.
+// harness constant is the fallback.
 function epochFloorOf(cfg: LiteConfig): number {
   const f = cfg.budgets.epochThroughputFloor;
   return typeof f === "number" && f > 0 && f <= 1 ? f : EPOCH_THROUGHPUT_FLOOR;
@@ -94,9 +95,9 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.min(Math.max(v, lo), hi);
 }
 
-// The orchestrator's policy file supplies everything the evaluation runner
+// The harness policy file supplies everything the evaluation runner
 // and the decision rule need; only the knobs lite.json owns are overridden,
-// clamped into the same hard limits the big loop obeys.
+// clamped into the harness hard limits.
 function policyFor(cfg: LiteConfig): Policy {
   const { policy } = loadPolicy(path.join(ROOT, "research", "policy.json"));
   policy.evaluation.rayonThreads = cfg.budgets.rayonThreads;
@@ -273,10 +274,11 @@ function layoutFloorOf(epoch: EpochBaseline | null): number {
   return epoch === null ? CROSS_BINARY_NULL_FLOOR : epoch.layoutNullBand;
 }
 
-// The big loop's recorded baseline is adopted only when it measured the same
-// quantity: same spur tree, same template content at the record's own commit,
-// same arm set and thread count, and chunk exposures within 10% of this
-// session's budget. Anything short of that measures fresh instead.
+// A recorded baseline in research/evaluations is adopted only when it
+// measured the same quantity: same spur tree, same template content at the
+// record's own commit, same arm set and thread count, and chunk exposures
+// within 10% of this session's budget. Anything short of that measures fresh
+// instead.
 function tryAdoptRecord(id: BaselineIdentity): { chunks: Evaluation[]; detail: string } | null {
   const recordPath = path.join(ROOT, "research", "evaluations", `000-baseline-${id.rayonThreads}.json`);
   if (!fs.existsSync(recordPath)) return null;
@@ -377,15 +379,6 @@ function writeChunkFile(name: string, seed: number, kind: "cand" | "failed" | "e
   fs.writeFileSync(path.join(chunkDirFor(name), `chunk-${seed}.${kind}.json`), JSON.stringify(e, null, 1));
 }
 
-function refuseIfLoopActive(): void {
-  let out = "";
-  try {
-    out = execFileSync("systemctl", ["--user", "is-active", "spur-research-loop"]).toString().trim();
-  } catch {
-    return;
-  }
-  if (out === "active") throw new Error("the autonomous loop (spur-research-loop) is active; the lite grader must not run beside it");
-}
 
 function diskGuard(policy: Policy): void {
   const free = freeDiskGb(ROOT);
@@ -683,9 +676,9 @@ function buildStatus(state: SessionState, cache: BaselineCache, policy: Policy, 
   };
 }
 
-// One baseline chunk at one seed, held to the same guards the big loop's
-// baseline top-up applies: per-arm accounting on the identity's arm set, and
-// no timing anomaly against the cache's own median.
+// One baseline chunk at one seed, held to two guards: per-arm accounting on
+// the identity's arm set, and no timing anomaly against the cache's own
+// median.
 async function measureBaselineChunk(state: SessionState, cache: BaselineCache, policy: Policy, seed: number): Promise<string | null> {
   const ctx = evalCtx(policy, state.base.bin, state.base.template, state.cand.spec, `lite-base:${state.identity.spurTree.slice(0, 12)}`);
   console.error(`[lite] measuring baseline chunk at seed ${seed} (~${policy.sequential.exploreBudgetSec}s explore)`);
@@ -736,7 +729,7 @@ function declaredTreatment(flags: Map<string, string>): NonNullable<SessionState
   if (!Number.isInteger(bit) || bit <= 0 || (bit & (bit - 1)) !== 0) throw new Error(`--treatment-bit must be a power of two, got ${raw}`);
   const known = VARIANT_BITS.find((v) => v.bit === bit);
   if (known === undefined) {
-    throw new Error(`bit ${bit} is not named in VARIANT_BITS (research/orchestrator/src/decide.ts); add it in the same commit that adds the tag to spur/spur-core/src/simulator/run_variant.rs`);
+    throw new Error(`bit ${bit} is not named in VARIANT_BITS (research/harness/src/decide.ts); add it in the same commit that adds the tag to spur/spur-core/src/simulator/run_variant.rs`);
   }
   if (NON_DECLARABLE_BITS.includes(bit)) {
     throw new Error(`bit ${bit} (${known.name}) names an instrument or an outcome, not a treatment randomized by run id; it cannot be a session's primary`);
@@ -755,7 +748,7 @@ function declaredTreatment(flags: Map<string, string>): NonNullable<SessionState
 async function cmdStart(flags: Map<string, string>): Promise<void> {
   const cfg = liteConfig();
   const policy = policyFor(cfg);
-  refuseIfLoopActive();
+  holdMeasuringLock("lite", "start", flags.get("name"));
   diskGuard(policy);
   const name = need(flags, "name");
   if (!/^[a-z0-9][a-z0-9-]{1,60}$/.test(name)) throw new Error(`session name must be a kebab-case slug, got ${name}`);
@@ -781,7 +774,7 @@ async function cmdStart(flags: Map<string, string>): Promise<void> {
   }
   if (cache === null) {
     cache = { identity, source: "measured", chunks: [] };
-    if (cfg.allowBigLoopBaselineRecord) {
+    if (cfg.allowRecordedBaseline) {
       const adopted = tryAdoptRecord(identity);
       if (adopted !== null) {
         cache.chunks = adopted.chunks;
@@ -828,7 +821,7 @@ async function cmdChunk(flags: Map<string, string>): Promise<void> {
   const policy = policyFor(cfg);
   const state = loadState(need(flags, "name"));
   if (state.finished) throw new Error(`session ${state.name} is finished`);
-  refuseIfLoopActive();
+  holdMeasuringLock("lite", "chunk", flags.get("name"));
   diskGuard(policy);
   const cache = loadCache(state.cacheFile);
   if (cache === null) throw new Error(`baseline cache ${state.cacheFile} is missing`);
@@ -1007,11 +1000,11 @@ async function cmdFinish(flags: Map<string, string>): Promise<void> {
 
   let regression: { passed: boolean; cases: Array<{ name: string; passed: boolean; detail: string }> } | null = null;
   if (flags.get("regression") === "true") {
-    refuseIfLoopActive();
-    const { runRegression } = await import("../orchestrator/src/regression.js");
+    holdMeasuringLock("lite", "finish", flags.get("name"));
+    const { runRegression } = await import("../harness/src/regression.js");
     const ctx = evalCtx(policy, state.cand.bin, state.cand.template, state.cand.spec, state.cand.spurLabel);
     console.error(`[lite] running the vr-nofault regression case (~${policy.regression.wallSecPerCase}s)`);
-    regression = await runRegression(ctx, null);
+    regression = await runRegression(ctx);
   }
 
   // The gate machinery wants a hypothesis and a firing result; lite supplies
@@ -1066,7 +1059,7 @@ async function cmdFinish(flags: Map<string, string>): Promise<void> {
 async function cmdBaseline(flags: Map<string, string>): Promise<void> {
   const cfg = liteConfig();
   const policy = policyFor(cfg);
-  refuseIfLoopActive();
+  holdMeasuringLock("lite", "baseline", flags.get("name"));
   diskGuard(policy);
   const target = Number(need(flags, "chunks"));
   if (!Number.isInteger(target) || target < 1 || target > HARD_LIMITS.maxSequentialChunks) {
@@ -1080,7 +1073,7 @@ async function cmdBaseline(flags: Map<string, string>): Promise<void> {
   let cache = loadCache(cacheFile);
   if (cache === null) {
     cache = { identity, source: "measured", chunks: [] };
-    if (cfg.allowBigLoopBaselineRecord) {
+    if (cfg.allowRecordedBaseline) {
       const adopted = tryAdoptRecord(identity);
       if (adopted !== null) {
         cache.chunks = adopted.chunks;
@@ -1374,7 +1367,7 @@ async function cmdSelftest(): Promise<void> {
       }
     }
     if (tryAdoptRecord(currentIdentity) !== null) {
-      failures.push("the big loop's recorded baseline must not be adopted under a different grader version");
+      failures.push("a recorded baseline must not be adopted under a different grader version");
     }
   }
 
@@ -1621,7 +1614,7 @@ function selfTestPanelCells(): string[] {
 // violation contrast of every treatment bit the corpus carries.
 async function cmdPanel(flags: Map<string, string>): Promise<void> {
   const cfg = liteConfig();
-  refuseIfLoopActive();
+  holdMeasuringLock("lite", "panel", flags.get("name"));
   const threads = cfg.budgets.rayonThreads;
   const manifest = panelManifest(threads);
 
@@ -1663,6 +1656,7 @@ async function cmdPanel(flags: Map<string, string>): Promise<void> {
     // wall_budget_sec makes the explorer cut the grid and flush its DB
     // itself; the explore() deadline is only the guard behind it.
     materializeConfig(template, cfgPath, {
+      checkAllRuns: true,
       // The grid exhausts long before the wall on every member, so the run
       // count, not the wall, sets a member's events; rare members raise it.
       runsPerConfig: m.runsPerConfig ?? 4000,
@@ -1674,6 +1668,8 @@ async function cmdPanel(flags: Map<string, string>): Promise<void> {
       binary, configPath: cfgPath, spec: resolveRoot(m.spec),
       outputDir: path.join(dir, "out"), wallSec, rayonThreads: threads,
     });
+    const executionError = exploreFailure(ex);
+    if (executionError !== null) throw new Error(executionError);
     // A killed explore leaves a valid partial corpus; the measured wall is
     // the rate denominator either way.
     const porc = await porcupine({
@@ -1723,7 +1719,7 @@ async function cmdPanel(flags: Map<string, string>): Promise<void> {
 // the grade). Same case, same wall, same reading as finish --regression.
 async function cmdRegression(flags: Map<string, string>): Promise<void> {
   const cfg = liteConfig();
-  refuseIfLoopActive();
+  holdMeasuringLock("lite", "regression", flags.get("name"));
   const policy = policyFor(cfg);
   const bin = resolveRoot(flags.get("bin") ?? path.join("spur", "target", "release", "spur"));
   const template = resolveRoot(flags.get("template") ?? cfg.configTemplate);
@@ -1731,10 +1727,10 @@ async function cmdRegression(flags: Map<string, string>): Promise<void> {
   for (const [what, f] of [["binary", bin], ["config template", template], ["spec", spec]] as const) {
     if (!fs.existsSync(f)) throw new Error(`${what} missing: ${f}`);
   }
-  const { runRegression } = await import("../orchestrator/src/regression.js");
+  const { runRegression } = await import("../harness/src/regression.js");
   const ctx = evalCtx(policy, bin, template, spec, flags.get("label") ?? "lite-regression");
   console.error(`[lite] running the vr-nofault regression case (~${policy.regression.wallSecPerCase}s)`);
-  const regression = await runRegression(ctx, null);
+  const regression = await runRegression(ctx);
   emit({ phase: "regression", binary: bin, template, passed: regression.passed, cases: regression.cases });
 }
 

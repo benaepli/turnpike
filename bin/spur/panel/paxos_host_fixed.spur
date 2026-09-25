@@ -90,7 +90,7 @@ role Node(cluster: Cluster) {
         leader_ballot = Ballot{ round: 0, leader: me };
         println("Node {me} initialized");
         run_scout(leader_ballot);
-        monitor_timeouts();
+        spawn monitor_timeouts();
     }
 
     @trace
@@ -138,7 +138,7 @@ role Node(cluster: Cluster) {
         leader_ballot = Ballot{ round: acceptor_ballot.round + 1, leader: me };
         println("Node {me} recovered");
         run_scout(leader_ballot);
-        monitor_timeouts();
+        spawn monitor_timeouts();
     }
 
     // ─────────────────────────────────────────────────────────

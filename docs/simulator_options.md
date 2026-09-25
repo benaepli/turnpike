@@ -25,6 +25,13 @@ Runs the main execution explorer over a configuration space, compiling the spec 
 
 The standard explorer writes `session.json` inside and beside the output directory: `wall_ms` (active time on a monotonic clock from the first queued run to the last finished one), `runs_completed`, `runs_failed`, `runs_skipped`, `wall_budget_sec`, `budget_hit`, `writer_flush_ms`, and the deployment summary: `deploy` (the selected deploy's name), `deployments_built`, `deploy_rejections` (parameter tuples the deploy returned `nil` for), `tuples_aliased` (tuples that built a deployment equal to an earlier one) and `nodes_beyond_mask_width` (nodes past index 63 in the largest deployment, which the 64-bit crash-hold and retarget masks never select).
 
+Linearizability checking is enabled by default in a separate bounded pool for
+all explorer modes and `run-plan`; `linearizability.enabled=false` opts out.
+Its configuration controls workers, queue count
+and bytes, per-history timeout, deferral or blocking on overflow, and stopping
+on violations. See [Integrated Linearizability Checking](linearizability.md)
+for defaults, persistence, offline reuse, and exit statuses.
+
 #### `wall_budget_sec`
 
 Active-time budget for the whole session, in seconds, measured on a monotonic clock that a machine suspend does not advance; `0` (the default) lets the grid alone end the session. Under a budget the grid is walked in rounds, one run of every configuration per round, so a cut leaves every configuration within one run of every other and the corpus keeps the grid's composition whatever the throughput. Runs already started finish. A budgeted session is not reproducible run for run; `num_runs_per_config` stays as an upper bound.
@@ -56,6 +63,9 @@ A plan fixes one parameter tuple with `params` and names its nodes and groups by
     "p3": { "partition": { "type": "bridge", "group": "nodes", "bridge": 2 } },
     "p4": { "partition": { "type": "majorities_ring", "group": "nodes" } },
     "h1": "heal",
+    "t1": { "advance_time": { "ticks": 120 } },
+    "z1": { "pause": { "node": "nodes[0]" } },
+    "z2": { "resume": "nodes[0]" },
     "d1": { "deliver": { "function": "Node.AppendEntries", "from": "nodes[0]", "to": "nodes[1]" } }
   },
   "dependencies": [
@@ -69,12 +79,41 @@ A plan fixes one parameter tuple with `params` and names its nodes and groups by
 - `dest` is omitted for a client operation that takes no destination, and required for one that takes one. Its role must match the operation's `dest` parameter.
 - `side_a` and `bridge` are positions in `group`, shorthand for `group[i]`.
 - `deliver.function` is the qualified handler name as recorded in traces, for example `Node.AppendEntries`.
+- `pause.node` arms a process pause on that node, at `checkpoint` (a positive occurrence within the node's current incarnation) or the next one it reaches. A planned pause offers no automatic resume: it completes when the checkpoint is actually interrupted, and ends only when its `resume` event executes, so `pause -> advance_time -> resume` orders an interval of time the process spent held. At most one armed or active pause per node; a crash cancels the pause and settles the matching resume.
+- `resume.node` names the node to resume, and must depend on its pause.
+- `advance_time` accepts either a positive `ticks` value or a named duration: `{"duration":"durations.election","numerator":1,"denominator":2}`. The numerator and denominator default to one and must be positive; the block and field are checked against the program. The ratio rounds up to an internal unit. It is the only way a plan moves global time: the scheduler samples no advances in `run-plan`. The event completes when the advance executes, so a later event can depend on time having passed. A timer permission never advances time, and an advance never grants a permission.
 
 Available partition types: `isolate_one`, `halves`, `majorities_ring`, `bridge`. See [Simulator Semantics](simulator_semantics.md#network-partitions) for details.
 
 Every path is checked when the plan loads, first against the deploy's root type and then against the deployment the plan's tuple builds. A path that does not resolve, an empty partition group, a `majorities_ring` group with fewer than four distinct members, and a `side_a` or `bridge` position outside the group are all load errors, reported before any run.
 
 `run-plan` writes `plan_resolved.json` beside its output: the plan with every path replaced by the global node index it resolved to. `traceanalyzer -dag-config` reads that file.
+
+### `replay`
+
+Takes one recorded execution again, step for step.
+
+```bash
+spur replay -a output/replay/run_12.json -o replayed -y SPEC.spur
+```
+
+- `-a, --artifact [FILE]`: the artifact an earlier `record_replay` session wrote.
+- `-o, --output-dir [DIR]`: where the replayed run's tables go.
+
+The artifact carries its own deploy, parameters and workload, so no config or
+plan file is needed. Replay refuses an artifact whose program digest,
+semantics version or artifact version does not match, installs the recorded
+clocks, and executes the recorded actions in order rather than redrawing
+them. It hands back each recorded observation after checking the node,
+incarnation, epoch, site, occurrence and global time it was taken at, that a
+monotonic reading agrees with the installed clock, and that an interval
+contains its own observation time within the configured width.
+
+Nothing that matters falls back to sampling. A missing, extra, reordered or
+invalid choice, an action that is not eligible where the record says it ran,
+and an action or observation left unused at the end are all errors. A replay
+stops where the recorded run stopped, so a capped or stalled execution
+reproduces as the one it was.
 
 ### `deploy`
 
@@ -213,16 +252,171 @@ Float, default `5.0`. Boosts the beam selection score of `Recover` events when t
 
 ### `purgatory`
 
-Configures probabilistic message delays for remote `ChannelSend` runnables. Disabled by default.
+Configures probabilistic message delays for the request half of a message: the record an async call creates and a channel send to another node. Disabled by default.
 
 ```json
-"purgatory": { "delay_probability": 0.15, "delay_duration_range": [5, 100] }
+"purgatory": {
+  "delay_probability": 0.15,
+  "delay_duration_range": [5, 100],
+  "hold_down_receivers": true,
+  "hold_local_sends": false
+}
 ```
 
-- `delay_probability` (default 0.0): probability that each remote `ChannelSend` is delayed. `0.0` disables purgatory entirely.
+- `delay_probability` (default 0.0): probability that each send is delayed. `0.0` disables purgatory entirely.
 - `delay_duration_range` (default `[5, 50]`): `[min_steps, max_steps]` for log-uniform delay sampling.
+- `hold_down_receivers` (default `true`): when false, a send selected for a hold into a node that is currently crashed is enqueued undelayed.
+- `hold_local_sends` (default `false`): when true, a send whose destination is the sending node itself, such as an async call a node makes on its own role, can be held like a network message. Off, such a send always goes straight to the node's local queue.
+
+Both toggles discard a hold after the selection roll and the duration draw, so the sends they do not name see the same random stream either way, and a replay artifact keeps one delay entry per send. The utilization statistics report the held and let-through counts under `purgatory`.
 
 See [Simulator Semantics](simulator_semantics.md#purgatory-message-delays) for details on crash and partition interactions.
+
+### Named-duration assignments
+
+A specification's `timing` blocks select their own feasible parameter domain.
+No configuration values or tick unit are required for them. The run's clock
+seed and each block's qualified name determine an assignment; `clock.rho`
+supplies the concrete `rate_min` and `rate_max` used by its requirements.
+Exact replay artifact format 2 records idle scheduling attempts as well as
+dispatches and advances, preserving subsequent step numbers.
+Assignments are stored in `runs.clock.durations` as objects keyed first by
+module-qualified block name, then field name. The exact replay artifact carries
+the same assignment and reinstalls it without invoking the sampler. Replay
+validates the fields and requirements and rejects a different timing declaration
+through the program digest.
+
+### `clock`
+
+Configures virtual time: the clock assumptions each run is drawn under and the
+settings of the explorer's time-advance sampler. Both `explore` and `run-plan`
+accept it. A program with no timing blocks, clock reads, or timed timers is given
+no clocks at all and is offered no advances, so the block changes nothing for
+it.
+
+```json
+"clock": { "rho": 0.05, "tt_width": 40, "rates": "extremes" }
+```
+
+- `rho` (default `0.0`): the rate bound. Each node's monotonic clock advances
+  at a rate in `[1 - rho, 1 + rho]` times global time. `0.0` gives every node
+  an exact rate and a zero origin, which is the control configuration.
+- `tt_width` (default `0`): the largest full width, in ticks, of an interval
+  `tt_now()` may return. `0` makes every observation exact.
+- `rates` (default `"extremes"`): `"extremes"` draws each node's rate from the
+  two ends of the band and one; `"sampled"` draws anywhere in it. Opposing
+  rates at a grantor and a holder are what a lease margin has to survive, so
+  the ends are worth more than the interior.
+- `advance_weight` (default `0.25`): the chance a scheduling step takes a time
+  advance rather than ordinary work, while both are possible. A heuristic, not
+  a clock assumption; it is recorded with the run's search settings.
+- `advance_max_log2` (default `12`): the largest sampled advance is
+  `2^advance_max_log2` internal units for a program without named durations. With named durations, sampled advances scale with the largest assigned duration; pending timer deadlines and single-unit steps are still targeted.
+- `origin_spread` (default `64`): the largest magnitude of a drawn clock
+  origin. Origins differ between nodes, so no two clocks share a zero.
+
+Time advances are a scheduler action of their own: one costs a step whatever
+its size, runs no protocol code and fires no timer. A timed timer becomes
+eligible when its owner's clock reaches its deadline, and still has to be
+selected in a later action to fire. See
+[Simulator Semantics](simulator_semantics.md#virtual-time) for the contract.
+
+In `run-plan` the scheduler samples no advances: time moves only through
+`advance_time` events.
+
+### `time`
+
+Chooses how global time is explored. Absent, or `"mode": "concrete"`, keeps
+the sampled clocks described above; `"symbolic"` leaves time open and settles
+it by solver decisions (see
+[Simulator Semantics](simulator_semantics.md#symbolic-time)). `explore`
+accepts it with every explorer; `run-plan` refuses the symbolic mode.
+`--set time.mode=symbolic` works like any other override.
+
+```json
+"time": { "mode": "symbolic", "durations": "sampled", "confirm": "violations" }
+```
+
+- `mode` (default `"concrete"`): `"concrete"` or `"symbolic"`.
+- `durations` (default `"sampled"`): `"sampled"` reads each named duration
+  as the run sampled it; `"open"` makes them unknowns held to their timing
+  block. A run that reads TrueTime with `tt_width > 0` keeps its sampled
+  durations under `"open"`.
+- `start` (default `"sampled"`) and `start_salt` (default `0`): where open
+  durations start. `"fixed"` starts every run at one assignment; a nonzero
+  salt draws the start from a separate stream.
+- `arithmetic` (default `"exact"`): the only accepted value. Rationals start
+  in 64 bits and widen to 128; past that the run concedes.
+- `trials` (default `"drawn"`): `"drawn"` asks the solver about the drawn
+  outcome only; `"all"` also tries every outcome not drawn, to count which
+  were open. `"all"` is a measurement setting and costs more.
+- `early_fire_weight` (default `0.25`): the chance a withheld timed timer is
+  released at a step when other work exists.
+- `cap` (default `null`): a multiple. A run whose solver cost passes `cap`
+  times the run's own cost concedes and goes on concretely. Both costs are
+  counted in fixed work units, not wall time, so a capped run is the same on
+  any machine.
+- `confirm` (default `"violations"`): which runs have their witness replayed
+  concretely: `"violations"` the candidates only, `"all"` every run (a
+  measurement setting), `"none"` no run, which leaves every candidate
+  unconfirmed. Replays are written to `<output>/confirmed/run_N/` beside
+  their witness artifact `run_N.witness.json`.
+- `audit_share` (default `0.0`): the share of runs whose solver log is
+  written to `<output>/audit/`, for replaying their decisions offline.
+
+Under the symbolic mode `linearizability.overflow` defaults to `"block"`
+unless the config names it. Every `runs` row carries a `time` object in its
+`clock` column: the settings above, the decision counts (flips drawn, taken
+and refused), whether and at which step the run conceded, and the solver's
+cost. A concrete run's row has no `time` object.
+
+### `record_replay`
+
+Writes one **exact-replay artifact** per run into `<output>/replay/run_N.json`.
+Off by default: it records every scheduling choice of every run.
+
+Each artifact carries the digest of the compiled program, the semantics
+version, the deploy and its parameters, the workload's events and
+dependencies outright, the settings the run's execution depends on, the
+clocks each node was given, every clock observation, every scheduler action
+in execution order, the message delays, the pause reservation, and the
+endpoint the run stopped at.
+
+It does **not** carry a random-draw tape. The crash-placement span and the
+step cap are learned across a session, so a tape replayed in a fresh process
+takes a different number of draws and every later value comes from the wrong
+place. The artifact carries the decisions instead, and replay executes them.
+What is left over - a queued item's priority, which only orders a selection
+the record already fixes - is drawn freshly and ignored.
+
+```json
+"record_replay": true
+```
+
+### Time metrics
+
+`traceanalyzer` reports a **Virtual Time** block for a corpus whose runs moved
+time or held a process: the runs that did, the time advances (total, per run
+and the largest single run), and the pauses (total, per run, the largest
+single run, how many resumed and how many a crash cancelled). A corpus whose
+specs read no clock reports nothing rather than a row of zeros.
+
+### `faults.pause_fraction`
+
+Share of runs that reserve one **process pause**, addressed as the k-th
+checkpoint the run reaches with k drawn log-uniformly. `0.0` by default: a
+pause changes what the explorer searches, and the complementary runs draw
+nothing at all, so the two populations form an internal placed-versus-stock
+contrast. Run-cap probes are exempt at every value.
+
+A checkpoint is a clock read or a timed-timer registration written directly in
+an async body, so a program that reads no clock reaches none and no
+reservation can fire. See
+[Simulator Semantics](simulator_semantics.md#process-checkpoints-and-the-placed-pause).
+
+```json
+"faults": { "pause_fraction": 0.5 }
+```
 
 ### `max_concurrent_writes`
 

@@ -1,0 +1,69 @@
+# Entry test: `symtime witness` on recorded concrete runs (phase 1
+# recorder datasets). A whole-tick timeline is solved from each run's rows
+# alone and the run re-evaluated with floor readings; a run counts when
+# every comparison outcome, min choice and timed fire survives.
+forms        1008 runs  replayed 1007  witness_infeasible 1   0.9990
+idioms       1008 runs  replayed 1005  witness_infeasible 3   0.9970
+crossclock    400 runs  replayed  400                          1.0000
+clean        2000 runs  replayed 2000                          1.0000
+recv_anchor  2000 runs  replayed 2000                          1.0000
+cached_flag  2000 runs  replayed 2000                          1.0000
+# (lease datasets measured with the all-margins solve; the others with the
+# final solve, rows as they are first and margins where rounding breaks.)
+
+# Exit: symbolic sessions with time.confirm = all, session_seed 1000,
+# linearizability on; every run's witness replayed by `spur replay` in a
+# child process, checking every time decision as the replay meets it.
+clean        320 checks  replayed 320                                              1.0000
+recv_anchor  320 checks  replayed 320                                              1.0000
+cached_flag  320 checks  replayed 320                                              1.0000
+forms        320 checks  replayed 320                                              1.0000
+idioms       960 checks  replayed 929  witness_overflow 14  witness_concession 13  witness_infeasible 4   0.9677
+crossclock   319 checks  replayed 272  witness_overflow 30  witness_concession 16  replay_diverged 1       0.8527
+# idioms falls short of the 0.99 exit criterion. Conceded runs: idioms 15
+# (none replayed past the concession), crossclock 46 (5 replayed, 24
+# witness_overflow, 16 conceded off a witness, 1 diverged). One crossclock
+# run of 320 fails with a clock overflow in its concrete continuation.
+
+# Exit measured again after phase 5 (exact online), same protocol, 20 runs
+# per config (320 checks each). Overflows past the solve are now named by
+# what overflowed (witness_reading_overflow: a clock reading).
+clean        320 checks  replayed 320                                                              1.0000
+recv_anchor  320 checks  replayed 320                                                              1.0000
+cached_flag  320 checks  replayed 320                                                              1.0000
+forms        320 checks  replayed 320                                                              1.0000
+idioms       320 checks  replayed 316  witness_overflow 3  witness_concession 1                    0.9875
+crossclock   320 checks  replayed 269  witness_overflow 22  witness_concession 12  replay_diverged 8
+                                       witness_reading_overflow 8  witness_negative 1               0.8406
+# Conceded runs: idioms 1 (not replayed past the concession); crossclock 47:
+# 2 replayed, 21 witness_overflow, 12 conceded off a witness, 8 diverged,
+# 3 reading overflow, 1 negative. The accepted rows of these runs need times
+# far past any concrete run (findings, "Witness and concession").
+
+# With the horizon (H from the clocks' range, 4.50e18 = 2^61.96 on every
+# dataset), same protocol:
+clean        320 checks  replayed 320                                                    1.0000
+recv_anchor  320 checks  replayed 320                                                    1.0000
+cached_flag  320 checks  replayed 320                                                    1.0000
+forms        320 checks  replayed 320                                                    1.0000
+idioms       320 checks  replayed 316  witness_overflow 2  witness_concession 2          0.9875
+crossclock   320 checks  replayed 282  witness_overflow 27  witness_concession 10
+                                       replay_diverged 1                                 0.8812
+# Conceded runs replayed past the concession: idioms 1 of 4, crossclock 17 of
+# 39 (was 2 of 47); unconceded: idioms 315 of 316, crossclock 265 of 281.
+# No reading overflow and no negative value after a concession.
+#
+# Horizon sweep (a fixed H in place of the clocks' one), confirm: all:
+#   H        idioms replayed   crossclock replayed
+#   clocks   316               282
+#   2^45     311               259
+#   2^40     312               258
+# A tighter horizon adds witness overflows and infeasible witnesses: the
+# overflow is the size of the fractions, not of the times.
+
+# Horizon on the witness side only (the owner's decision), same protocol:
+idioms       320 checks  replayed 316  witness_overflow 3  witness_concession 1              0.9875
+crossclock   320 checks  replayed 273  witness_overflow 28  witness_concession 15
+                                       replay_diverged 4                                     0.8531
+# Conceded runs replayed: idioms 0 of 1, crossclock 6 of 47. No reading
+# overflow after a concession. The 99% gate is dropped; see the plan.

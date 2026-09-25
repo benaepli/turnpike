@@ -6,7 +6,8 @@ Full grammar and reference: `spur/design/language.md`
 
 A Spur program consists of top-level definitions: `role` blocks, one `client`
 block, `type` definitions, standalone functions, and at least one `@deploy`
-function that builds the deployment.
+function that builds the deployment. A file may open with `use` declarations,
+which import from other modules (see "Modules" below).
 
 ```
 type Cluster {
@@ -92,6 +93,60 @@ The deploy parameter struct's fields carry exactly one tag each:
 
 `@quorum` on a `list<R>` field marks a group that generated `majorities_ring` and
 `bridge` partitions prefer. `@trace` on a role or client function is unchanged.
+
+## Modules
+
+A file is a module and the module tree is the directory tree. A one-file spec is
+a one-module program and needs nothing: no `spur.json`, no `pub`, no `use`.
+
+- The module path `s1::s2::...::sn` names `<root>/s1/s2/.../sn.spur`, where
+  `<root>` is the directory holding the crate's `spur.json`, or the entry spec's
+  own directory when there is none.
+- Only files a `use` reaches are loaded.
+- `::` separates module and item segments. `.` keeps every meaning it has.
+
+```
+use raft;                    // the module
+use raft::Node;              // an item
+use raft::Node as Replica;   // under another name
+pub use raft::Node;          // and re-export it
+use std::quorum;             // the standard library
+
+type ShardedKV {
+    shards: list<raft::Cluster>;   // an inline path needs `use raft;` here
+};
+```
+
+A `use` path is **crate-absolute**: its first segment is a dependency alias,
+`std`, or a top-level module of this crate. An inline path is
+**binding-relative**: its first segment is a module bound in this file, which is
+what a `use` installs. The entry spec's own items cannot be imported, so shared
+items live in a library module.
+
+**Visibility.** An item is `pub` or private; private means visible in the
+declaring module and its descendants. A role's functions carry the bit too, and
+an RPC call to a handler private to another module is a type error. Runtime
+lookups ignore it, so `Init`, `RecoverInit`, `Write`, `Read` and `RMW` are
+dispatched whatever the bit says.
+
+**Qualified names.** An item's display name is `<module path>::<name>`, and a
+compiled function is `raft::Node.AppendEntries` -- `::` for the module part, `.`
+between a role and its function. `traces.function_name` and a plan's
+`deliver.function` use that spelling. A one-module program's names are unchanged,
+so every config in this repository stays correct.
+
+**Crates.** A `spur.json` names `root`, `deps` (paths only) and `presets`. It
+never lists modules. A `.spur` path given to the CLI is always its own entry
+under an implicit manifest, even when a `spur.json` sits beside it.
+
+**Standard library.** `std` is compiled into the binary and bound in every
+module, so `std::quorum::f(n)` needs no `use`. It holds `std::quorum`,
+`std::lists`, `std::maps`, `std::route` and `std::retry`, all over primitives and
+collections of primitives -- `spawn<R>` takes a concrete role, so a cluster
+builder or a retry-to-leader loop belongs in the protocol's own module. `lists`
+and `maps` are plural because `list` and `map` are keywords and cannot be path
+segments. A free function cannot be `async`, so a retry loop that awaits an RPC
+lives on a role rather than beside it.
 
 ## Client Contract (Linearizability)
 
@@ -193,9 +248,26 @@ var ch2 = link->Handler(args2);   // guaranteed to be delivered after ch1
 
 ### Sync vs Async
 
-- **sync** (default): blocking, atomic, cannot use channel ops
+- **sync** (default): blocking, cannot use channel ops. Atomic against other
+  work on its node, but a clock read inside it is a checkpoint, so a pause can
+  hold it while other nodes and time move on
 - **async**: returns `chan<T>` immediately, caller must `<-` to get result
-- Calling an async function **spawns a new background task** (record). If you don't await the returned channel, the task runs concurrently in the background while the caller continues. This is how you spawn background work like timeout monitors or replication handlers.
+- A **local** async call **runs in the caller**: the callee starts at once and
+  the caller waits at the call site until the callee returns or reaches its
+  first yield point (a receive with nothing buffered, a timer, a yield). Only
+  then does the callee become a background task and the caller carry on.
+- `spawn f(args)` starts the task without running any of it, so the caller does
+  not wait even for the first yield point. Use it for work that must not run
+  before the caller finishes -- a timeout monitor armed in `Init`, say.
+- `<- f(args)` runs the callee in the caller and waits for its value.
+- A sync function may call an async one: the callee spills into a task at its
+  first yield point, so the synchronous caller never suspends. It still cannot
+  `<-`.
+- `spawn` applies only to a local async call. `spawn peer->H()` is an error
+  because an RPC already starts a task, and `spawn sync_helper()` is an error
+  because a synchronous call has no task. The deploy-only allocation
+  `spawn<R>(k)` is a separate form.
+- A **remote** call (`peer->H()`) always starts a task; it is a message.
 
 ### Immutable Updates (`:=`)
 
@@ -266,7 +338,54 @@ var timeout_ch: chan<()> = set_timer();
 <- timeout_ch;    // blocks until simulator fires the timer
 ```
 
-No duration parameter — the simulator controls when timers fire to explore different orderings.
+`set_timer` has no duration — the simulator controls when it fires, to
+explore different orderings.
+
+Two constructors add a clock constraint. Both take the label as a trailing
+argument and return `chan<()>`:
+
+```
+<- set_timer_after(100, "lease");     // 100 ticks on this node's clock
+var deadline: int = mono_now() + 100;
+<- set_timer_at(deadline);            // at that monotonic reading
+```
+
+A timed timer is not delivered before its owner's clock reaches its deadline,
+and may be delivered much later. A negative duration is a runtime error; zero
+is eligible at once. `set_timer_after` samples and registers in one step;
+`set_timer_at` keeps an earlier reading, so a pause in between consumes part
+of the interval.
+
+## Clocks
+
+```
+var now: int = mono_now();        // this node's monotonic clock, in ticks
+var bounds = tt_now();            // std::time::Interval { earliest, latest }
+if (std::time::tt_after(t)) { }   // one fresh observation, strict compare
+if (std::time::tt_before(t)) { }
+```
+
+- `mono_now()` is this node's own tick domain. Clocks run at rates inside
+  `[1 - rho, 1 + rho]` with per-node origins, so a slow holder can still
+  think a lease holds after a fast grantor thinks it expired. A reading sent
+  to another node does not become a reading in its domain.
+- `tt_now()` bounds absolute time at the moment of the read, with a full
+  width at most `tt_width`. The value never advances afterwards; it need not
+  contain the time at which its holder acts on it. Do not read the midpoint
+  as an exact clock.
+- Both need a running node: they are rejected in a deploy function and in a
+  declaration initializer, through helper calls as well as directly.
+- Reads are effectful. Order and count are preserved, a repeated read is
+  never folded, and one `tt_now()` captures both endpoints together.
+- Global time is hidden. The scheduler advances it as an action of its own,
+  which runs no protocol code and fires no timer.
+
+A read or a timed registration is a **process checkpoint** wherever it is
+written: with `faults.pause_fraction` set, the simulator may freeze the
+process there, holding the value it captured while other nodes run and time
+moves on. A read inside a synchronous helper counts, and the pause parks the
+helper's caller with it. An untimed `set_timer()` is not a checkpoint,
+because it captures no reading.
 
 ## Simulator Semantics
 
@@ -276,4 +395,6 @@ No duration parameter — the simulator controls when timers fire to explore dif
 - A node's role parameter is supplied again from the deployment on every recovery; it is never persisted
 - Messages to crashed nodes are buffered and re-delivered on recovery
 - Crashed nodes lose all in-memory state; only `persist_data` survives
-- Timers are dropped on crash
+- Timers are dropped on crash, including a timed timer already past its deadline
+- The monotonic clock survives a crash: process failure is a process restart, not a reboot, so the clock keeps its rate, origin and epoch
+- A crash cancels a paused process: its saved frame, its notifications and its resume are all discarded

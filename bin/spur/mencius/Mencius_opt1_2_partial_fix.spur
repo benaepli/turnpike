@@ -158,7 +158,7 @@ role Node(cluster: Cluster) {
         next_req_id = me; // unique across nodes: use stride of n
         persist(); // save fresh FIFO links so they survive a future crash
         println("Node {me} initialized. n={n}");
-        monitor_suspicions();
+        spawn monitor_suspicions();
     }
 
     @trace
@@ -215,7 +215,7 @@ role Node(cluster: Cluster) {
 
         println("Node {me} recovered. expected={expected} my_index={my_index}");
         // First yield point — messages start flowing after this.
-        monitor_suspicions();
+        spawn monitor_suspicions();
     }
 
     // ─────────────────────────────────────────────────────────
@@ -504,7 +504,7 @@ role Node(cluster: Cluster) {
                     // so the handler re-checks skip_timer_active[r] before
                     // sending — stale fires after a flush become no-ops.
                     skip_timer_active = skip_timer_active[r] := true;
-                    skip_timer_for(r);
+                    spawn skip_timer_for(r);
                 }
             }
         }

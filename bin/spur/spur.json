@@ -1,0 +1,14 @@
+{
+  "name": "sharded",
+  "root": "sharded.spur",
+  "presets": {
+    "debug": {
+      "config": "../../scheduler_configs/sharded_debug.json",
+      "deploy": "Sharded"
+    },
+    "churn": {
+      "config": "../../scheduler_configs/sharded_churn.json",
+      "deploy": "Sharded"
+    }
+  }
+}

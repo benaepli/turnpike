@@ -16,8 +16,7 @@ if [ ! -f "$SPEC_FILE" ]; then
 fi
 
 # Run spur compiler from the spur subdirectory.
-# `compile` now writes a directory containing program.json, cfg.svg, and
-# program.pir (Pure / SSA IR).
+# `compile` writes a directory containing program.json and cfg.svg.
 echo "Compiling $SPEC_FILE using spur..."
 cd spur && cargo run --release --bin spur -- compile "../$SPEC_FILE" --output-dir ../output -y
 

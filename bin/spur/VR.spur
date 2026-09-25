@@ -83,7 +83,7 @@ role Node(cluster: Cluster) {
     @trace
     async fn Init() {
         println("Node {me} initialized. Peer count: {len(replicas)}");
-        monitor_timeouts();
+        spawn monitor_timeouts();
     }
 
     @trace
@@ -108,7 +108,7 @@ role Node(cluster: Cluster) {
                 replicas[i]->Recovery(replicas[me], recovery_nonce, checkpoint_op);
             }
         }
-        monitor_timeouts();
+        spawn monitor_timeouts();
     }
 
     // Async helper to resolve channels from functions

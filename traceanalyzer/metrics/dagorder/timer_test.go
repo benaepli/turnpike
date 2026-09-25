@@ -25,7 +25,7 @@ func wheres(cs []reader.RowClause) []string {
 func TestTimerRowFilterColumnEncoding(t *testing.T) {
 	got := timerRowFilter(timerPlan("timeout"), "column")
 	want := []string{
-		"kind <> 'TimerFired'",
+		"kind NOT IN ('TimerFired', 'ClockAdvance')",
 		"kind = 'TimerFired' AND client_id = 1 AND action = 'System.TimerFired/timeout'",
 	}
 	if !reflect.DeepEqual(wheres(got), want) {
@@ -47,7 +47,7 @@ func TestTimerRowFilterColumnEncoding(t *testing.T) {
 func TestTimerRowFilterPayloadEncoding(t *testing.T) {
 	got := timerRowFilter(timerPlan("timeout"), "payload")
 	want := []string{
-		"kind <> 'TimerFired'",
+		"kind NOT IN ('TimerFired', 'ClockAdvance')",
 		"kind = 'TimerFired' AND CAST(json_extract(payload, '$[0].value.index') AS BIGINT) = 1 AND json_extract_string(payload, '$[1].value') = 'timeout'",
 	}
 	if !reflect.DeepEqual(wheres(got), want) {
@@ -64,11 +64,11 @@ func TestTimerRowFilterPayloadEncoding(t *testing.T) {
 
 func TestTimerRowFilterWithoutTimerRows(t *testing.T) {
 	got := timerRowFilter(timerPlan("timeout"), "none")
-	if !reflect.DeepEqual(wheres(got), []string{"kind <> 'TimerFired'"}) {
+	if !reflect.DeepEqual(wheres(got), []string{"kind NOT IN ('TimerFired', 'ClockAdvance')"}) {
 		t.Fatalf("a corpus without timer rows reads only non-timer rows: %q", wheres(got))
 	}
 	got = timerRowFilter(&PlanConfig{Events: map[string]EventSpec{"w": {Kind: KindWrite}}}, "column")
-	if !reflect.DeepEqual(wheres(got), []string{"kind <> 'TimerFired'"}) {
+	if !reflect.DeepEqual(wheres(got), []string{"kind NOT IN ('TimerFired', 'ClockAdvance')"}) {
 		t.Fatalf("a plan without allow_timer reads only non-timer rows: %q", wheres(got))
 	}
 }

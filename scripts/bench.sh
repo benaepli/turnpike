@@ -88,11 +88,12 @@ cat > "$CONFIG" <<EOF
     "num_crashes": $(range_json "$CR_MIN" "$CR_MAX" "$CR_STEP"),
     "dependency_density": $DD_JSON,
     "num_runs_per_config": $RPC,
-    "max_iterations": $MAX_ITER
+    "max_iterations": $MAX_ITER,
+    "linearizability": {"enabled": true, "stop_on_violation": false}
 }
 EOF
 
-OUTPUT_DIR="/tmp/spur-bench-$(date +%s)"
+OUTPUT_DIR=$(mktemp -d /tmp/spur-bench.XXXXXX)
 
 echo "=== Spur Simulator Benchmark ==="
 echo "Level:    $LEVEL"
@@ -110,14 +111,46 @@ printf " done (%ds)\n" "$BUILD_ELAPSED"
 
 # Run
 printf "Running...\n"
-RUN_START=$SECONDS
-"$BINARY" explore --config "$CONFIG" -y --output-dir "$OUTPUT_DIR" "$SPEC"
-RUN_ELAPSED=$(( SECONDS - RUN_START ))
+RESULT=0
+"$BINARY" explore --config "$CONFIG" -y --output-dir "$OUTPUT_DIR" "$SPEC" || RESULT=$?
+case "$RESULT" in
+    0|2|4) ;;
+    *)
+        echo "Explorer failed (exit $RESULT). Output retained: $OUTPUT_DIR" >&2
+        exit "$RESULT"
+        ;;
+esac
 
-RPS=$(awk "BEGIN { printf \"%.1f\", $TOTAL / $RUN_ELAPSED }")
+if ! python3 - "$OUTPUT_DIR" <<'PY'
+import json
+import pathlib
+import sys
 
-echo "-------------------------------"
-echo "Wall:     ${RUN_ELAPSED}s"
-echo "Runs/sec: $RPS"
+output = pathlib.Path(sys.argv[1])
+manifest = json.loads((output / "checking.json").read_text())
+if not manifest.get("reusable") or not manifest["config"]["enabled"] or manifest["config"]["stop_on_violation"]:
+    raise SystemExit("Benchmark requires finalized checking with stop_on_violation=false")
+session = json.loads((output / "session.json").read_text())
+checking = json.loads((output / "checks_summary.json").read_text())
+runs = session["runs_completed"]
+wall = (session["wall_ms"] + session["writer_flush_ms"]) / 1000
+if runs <= 0 or wall <= 0 or checking["histories"] != runs or checking["execution_errors"] or checking["errors"]:
+    raise SystemExit("Benchmark did not produce a complete session summary")
+print("-------------------------------")
+print(f"Runs:     {runs} completed")
+print(f"Wall:     {wall:.3f}s (including finalization)")
+print(f"Runs/sec: {runs / wall:.1f}")
+print(f"Checking: {checking['passed']} passed, {checking['violated']} violated, "
+      f"{checking['unknown']} unknown, {checking['unchecked']} unchecked")
+PY
+then
+    echo "Benchmark output retained: $OUTPUT_DIR" >&2
+    exit 1
+fi
 
-rm -rf "$OUTPUT_DIR"
+if [ "$RESULT" -eq 0 ]; then
+    rm -rf "$OUTPUT_DIR"
+else
+    echo "Output retained for offline checking: $OUTPUT_DIR"
+fi
+exit "$RESULT"

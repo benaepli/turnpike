@@ -1,6 +1,9 @@
 // Multi-Paxos (Paxos Made Moderately Complex)
 // Co-located Replica + Acceptor + Leader per node.
 // Scouts and Commanders are async tasks with callback-based quorum collection.
+// A command keeps its identity across a crash of the node that issued it: the
+// request counter is persisted, a write is identified by its uid, and a write
+// that was already decided is acknowledged rather than proposed again.
 
 type Command {
     client_node: int;
@@ -33,6 +36,7 @@ type PersistentState {
     accepted: list<PValue>;
     decisions: map<int, Command>;
     slot_num: int;
+    next_req_id: int;
 };
 
 type Cluster {
@@ -53,6 +57,7 @@ role Node(cluster: Cluster) {
     var decisions: map<int, Command> = {};
     var kv_store: map<string, list<int>> = {};
     var pending_requests: map<int, chan<ClientResponse>> = {};
+    var pending_writes: map<int, int> = {};
     var next_req_id: int = 0;
 
     // ── Acceptor state ───────────────────────────────────────
@@ -85,7 +90,7 @@ role Node(cluster: Cluster) {
         leader_ballot = Ballot{ round: 0, leader: me };
         println("Node {me} initialized");
         run_scout(leader_ballot);
-        monitor_timeouts();
+        spawn monitor_timeouts();
     }
 
     @trace
@@ -97,9 +102,11 @@ role Node(cluster: Cluster) {
             accepted = s.accepted;
             decisions = s.decisions;
             slot_num = s.slot_num;
+            next_req_id = s.next_req_id;
         } else {
             decisions = {};
             slot_num = 1;
+            next_req_id = 0;
         }
 
         // Rebuild kv_store from persisted decisions
@@ -121,17 +128,17 @@ role Node(cluster: Cluster) {
         // Reset volatile state
         active = false;
         pending_requests = {};
+        pending_writes = {};
         leader_proposals = {};
         cmd_responses = {};
         cmd_done = {};
         scout_done = true;
         heard_decision = false;
-        next_req_id = slot_num;
 
         leader_ballot = Ballot{ round: acceptor_ballot.round + 1, leader: me };
         println("Node {me} recovered");
         run_scout(leader_ballot);
-        monitor_timeouts();
+        spawn monitor_timeouts();
     }
 
     // ─────────────────────────────────────────────────────────
@@ -155,7 +162,8 @@ role Node(cluster: Cluster) {
             acceptor_ballot: acceptor_ballot,
             accepted: accepted,
             decisions: decisions,
-            slot_num: slot_num
+            slot_num: slot_num,
+            next_req_id: next_req_id
         });
     }
 
@@ -167,8 +175,12 @@ role Node(cluster: Cluster) {
         len(replicas) / 2 + 1
     }
 
+    // A write keeps its identity when the same client invocation is executed
+    // again after a crash, so writes compare by uid and reads by request id.
     fn commands_eq(a: Command, b: Command): bool {
-        a.client_node == b.client_node and a.req_id == b.req_id
+        if a.client_node != b.client_node or a.kind != b.kind { return false; }
+        if a.kind == 1 { return a.uid == b.uid; }
+        a.req_id == b.req_id
     }
 
     // ─────────────────────────────────────────────────────────
@@ -213,6 +225,7 @@ role Node(cluster: Cluster) {
         // Skip if this exact command was already decided in an earlier slot
         if already_performed(cmd) {
             slot_num = slot_num + 1;
+            resolve_pending(cmd, []);
             return ();
         }
 
@@ -231,13 +244,25 @@ role Node(cluster: Cluster) {
             println("Perform: slot {slot_num} READ key={cmd.key}");
         }
         slot_num = slot_num + 1;
+        resolve_pending(cmd, result);
+    }
 
-        // Resolve pending client request if this command originated here
-        if cmd.client_node == me and exists(pending_requests, cmd.req_id) {
-            resolve(pending_requests[cmd.req_id], ClientResponse{
-                success: true, key: cmd.key, value: result, leader: replicas[me]
-            });
-            pending_requests = erase(pending_requests, cmd.req_id);
+    // Answer every pending request here that names this command; a write
+    // executed again after a crash waits under a different request id.
+    fn resolve_pending(cmd: Command, result: list<int>) {
+        if cmd.client_node != me { return (); }
+        for (req_id, ch) in pending_requests {
+            var matches = req_id == cmd.req_id;
+            if !matches and cmd.kind == 1 and exists(pending_writes, req_id) {
+                matches = pending_writes[req_id] == cmd.uid!;
+            }
+            if matches {
+                resolve(ch, ClientResponse{
+                    success: true, key: cmd.key, value: result, leader: replicas[me]
+                });
+                pending_requests = erase(pending_requests, req_id);
+                pending_writes = erase(pending_writes, req_id);
+            }
         }
     }
 
@@ -433,9 +458,14 @@ role Node(cluster: Cluster) {
         println("ClientWrite: key={key} uid={int_to_string(uid)}");
         var req_id = next_req_id;
         next_req_id = next_req_id + 1;
+        persist_state();
         var cmd = Command{ client_node: me, req_id: req_id, kind: 1, key: key, uid: uid };
+        if command_decided(cmd) {
+            return ClientResponse{ success: true, key: key, value: [], leader: replicas[me] };
+        }
         var ch: chan<ClientResponse> = make();
         pending_requests = pending_requests[req_id] := ch;
+        pending_writes = pending_writes[req_id] := uid;
         propose(cmd);
         <- ch
     }
@@ -444,6 +474,7 @@ role Node(cluster: Cluster) {
         println("ClientRead: key={key}");
         var req_id = next_req_id;
         next_req_id = next_req_id + 1;
+        persist_state();
         var cmd = Command{ client_node: me, req_id: req_id, kind: 0, key: key, uid: nil };
         var ch: chan<ClientResponse> = make();
         pending_requests = pending_requests[req_id] := ch;

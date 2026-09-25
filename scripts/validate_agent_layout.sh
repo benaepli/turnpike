@@ -54,11 +54,11 @@ for md in .agents/skills/*/SKILL.md; do
     done < <(grep -o '`\(docs/agent\|references\|reference\|scripts\)/[^`]*`' "$md" | tr -d '`' | sort -u)
 done
 
-# 5. Skill bodies do not mention .claude/ paths. The two research-loop skills
-#    keep their existing operational text and are whitelisted.
+# 5. Skill bodies do not mention .claude/ paths. The lite research-loop skill
+#    keeps its existing operational text and is whitelisted.
 for md in .agents/skills/*/SKILL.md; do
     case "$md" in
-    .agents/skills/research-loop-lite/*|.agents/skills/research-loop-operator/*) continue ;;
+    .agents/skills/research-loop-lite/*) continue ;;
     esac
     if grep -qn '\.claude/' "$md"; then
         fail "$md mentions .claude/ paths:"

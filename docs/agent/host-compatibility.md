@@ -41,15 +41,14 @@ a tool mechanic has no cross-host name; those mechanics map as follows.
 ## Monitor stopping
 
 - Claude: background monitor tasks are stopped with `TaskStop`.
-- Codex: use the repository's sentinel files and verified process control
-  instead: `touch research/DRAIN` to park the loop at a boundary,
-  `touch research/STOP` to abort a running phase, and kill monitor processes
-  by PID after verifying with `ps` that the PID is the monitor. Never assume a
-  process died; check.
+- Codex: kill monitor processes by PID after verifying with `ps` that the
+  PID is the monitor. Never assume a process died; check. A grader stopped
+  this way releases `tmp/loop/measuring.lock` on SIGINT, SIGTERM and SIGHUP;
+  after SIGKILL the next measuring command reclaims it.
 
 ## Commit attribution
 
-- Claude: daemon and operator commits keep the existing Claude trailers
+- Claude: loop commits keep the existing Claude trailers
   (`Co-Authored-By` / session links) as the research-loop skills specify.
-- Codex: operator commits use normal repository attribution (the configured
+- Codex: loop commits use normal repository attribution (the configured
   git user). Do not invent Claude-specific trailers.

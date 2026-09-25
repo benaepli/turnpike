@@ -206,6 +206,16 @@ func writeFaultTable(w io.Writer, f *metrics.FaultResult) {
 			f.CrashDistance.MeanDistance)
 	}
 
+	if f.Time != nil {
+		fmt.Fprintf(w, "## Virtual Time\n")
+		fmt.Fprintf(w, "  Runs that moved time or held a process: %d\n", f.Time.Runs)
+		fmt.Fprintf(w, "  Advances: %d (%.1f per run, max %d)\n",
+			f.Time.Advances, f.Time.AdvancesPerRun, f.Time.MaxAdvancesRun)
+		fmt.Fprintf(w, "  Pauses: %d (%.2f per run, max %d), resumed %d, cancelled %d\n\n",
+			f.Time.Pauses, f.Time.PausesPerRun, f.Time.MaxPausesRun,
+			f.Time.Resumes, f.Time.PausesCancelled)
+	}
+
 	if len(f.CrashCoverage) > 0 {
 		fmt.Fprintf(w, "## Per-Function Crash Coverage\n")
 		fmt.Fprintf(w, "%-35s %8s %8s %10s\n", "Function", "CrRuns", "Total", "Coverage")

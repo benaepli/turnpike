@@ -221,10 +221,10 @@ function readJson(p) {
   return JSON.parse(readFileSync(p, "utf8"));
 }
 
-function execFileAsync(cmd, args, opts) {
+function execFileAsync(cmd, args, opts, acceptedCodes = [0]) {
   return new Promise((resolve) => {
     execFile(cmd, args, { cwd: ROOT, maxBuffer: 512 * 1024 * 1024, encoding: "utf8", ...opts }, (err, stdout, stderr) => {
-      resolve({ ok: err === null, stdout, stderr: stderr ?? "" });
+      resolve({ ok: err === null || acceptedCodes.includes(err.code), stdout, stderr: stderr ?? "" });
     });
   });
 }
@@ -247,7 +247,7 @@ function exploreOnce({ binary, configPath, spec, outputDir, budgetSec, threads, 
     child.on("exit", (code) => {
       clearTimeout(timer);
       closeSync(fd);
-      resolve({ ok: code === 0 && !timedOut, wallMs: Date.now() - started, timedOut });
+      resolve({ ok: [0, 2, 4].includes(code) && !timedOut, exitCode: code, wallMs: Date.now() - started, timedOut });
     });
   });
 }
@@ -276,6 +276,7 @@ export async function runOneSeed(opts) {
   const template = readJson(path.join(ROOT, opts.configTemplate));
   writeFileSync(configPath, JSON.stringify({
     ...template, num_runs_per_config: opts.runsPerConfig, session_seed: opts.seed,
+    linearizability: { ...template.linearizability, enabled: true, stop_on_violation: false },
   }, null, 2) + "\n");
 
   const ex = await exploreOnce({
@@ -286,7 +287,7 @@ export async function runOneSeed(opts) {
   const exposure = sessionExposureMs(outputDir, ex.wallMs);
 
   const porc = await execFileAsync(path.join(ROOT, "porcupine/batch"),
-    ["-input", outputDir, "-model", "kv", "-timeout", "3000"]);
+    ["-input", outputDir, "-model", "kv", "-timeout", "3000"], undefined, [0, 2, 4]);
   const gr = await execFileAsync(path.join(ROOT, "traceanalyzer/main"),
     ["-input", outputDir, "-grade", "-dag-config", opts.oracleDags.join(","),
       "-grade-max-runs", "0", "-grade-budget-ms", String(opts.gradeBudgetMs), "-format", "json"]);
@@ -316,11 +317,10 @@ export async function runOneSeed(opts) {
   for (const sibling of [".config.json", ".session.json", ".utilization.json", ".campaign.json"]) {
     rmSync(`${outputDir}${sibling}`, { force: true });
   }
-  // A session killed at its wall still wrote a corpus, and the corpus is what
-  // was graded, so only an empty or ungradeable one is a failure.
+  // Timeout results still need a nonempty, readable corpus.
   return {
     seed: opts.seed, fidelity: "sequential", rayonThreads: opts.threads,
-    ok: runs > 0 && metrics.gradedRuns > 0, timedOut: ex.timedOut, metrics,
+    ok: (ex.ok || ex.timedOut) && porc.ok && gr.ok && runs > 0 && metrics.gradedRuns > 0, timedOut: ex.timedOut, metrics,
   };
 }
 

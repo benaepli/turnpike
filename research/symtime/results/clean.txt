@@ -1,0 +1,39 @@
+runs 20000
+values rebuilt 4104176, comparisons 39032, deadlines 534866
+mismatches 0
+operands of unknown origin 0
+
+runs 20000
+executed constraints by kind and shape:
+  comparison TwoPoint: 39032
+  timer      TwoPoint: 469226
+comparisons in two-point or constant form: 39032/39032 = 100.00%
+comparison sites by shape:
+  site 378: TwoPoint x39032
+
+runs 20000 (skipped for scale 0); constraints outside the difference form 0
+taken outcomes the solver rejected 0
+solver ns per run: median 2034 p99 38724 max 52751
+solver ns per check: median 124 p99 199 max 380
+solver time over the run's own wall time (20000 runs): median 0.0049 p99 0.0151 max 0.0249
+comparisons 39032, with both outcomes open 27258
+open comparisons per run: median 1 p99 3 max 5
+site outcome: runs reaching the site, share taking the outcome, share where it was open
+  site 378 false: reached 18668 (93.34% of runs), taken 36.01%, open 86.92%
+  site 378 true: reached 18668 (93.34% of runs), taken 80.72%, open 93.34%
+
+runs 20000 with time constraints 20000
+  earliest         solved 20000 infeasible 0 moved 20000 kept every outcome 19701 (98.505% of solved)
+  earliest+margin  solved 20000 infeasible 0 moved 20000 kept every outcome 20000 (100.000% of solved)
+  latest           solved 20000 infeasible 0 moved 20000 kept every outcome 19641 (98.205% of solved)
+  latest+margin    solved 20000 infeasible 0 moved 20000 kept every outcome 20000 (100.000% of solved)
+artifacts written 200
+rewritten artifacts replayed: 200 ok, 0 failed
+
+with eliminated unknowns:
+runs 20000 (skipped for scale 0); constraints outside the difference form 0
+taken outcomes the solver rejected 0
+runs where forgetting changed an answer 0
+solver ns per run: median 1894 p99 38874 max 52319
+solver ns per check: median 117 p99 165 max 371
+solver time over the run's own wall time (20000 runs): median 0.0046 p99 0.0149 max 0.0202

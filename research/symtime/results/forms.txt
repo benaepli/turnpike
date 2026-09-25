@@ -1,0 +1,15 @@
+runs 2000
+values rebuilt 909007, comparisons 62339, deadlines 90253
+mismatches 0
+operands of unknown origin 0
+
+runs 2000
+executed constraints by kind and shape:
+  comparison TwoPoint: 34964
+  comparison General: 27375
+  timer      TwoPoint: 83872
+comparisons in two-point or constant form: 34964/62339 = 56.09%
+comparison sites by shape:
+  site 382: TwoPoint x3822
+  site 946: TwoPoint x31142
+  site 957: General x27375

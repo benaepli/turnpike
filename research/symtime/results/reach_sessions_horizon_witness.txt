@@ -1,0 +1,24 @@
+cached_flag drawn: chunks 2 runs 7918418 wall 600s runs/s 13197 failed 0
+  confirmed 35 (210.0/wall-hour, 1 in 226241 runs)  unconfirmed 0  other unknown 0
+  solver share 0.046  comparisons/run 14.2  flips drawn 0.500 taken 0.226 refused 0.274  runs with a flip 0.684
+  widenings 0  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.299  per run 68.4
+cached_flag open: chunks 2 runs 7059614 wall 600s runs/s 11766 failed 0
+  confirmed 31 (186.0/wall-hour, 1 in 227729 runs)  unconfirmed 0  other unknown 0
+  solver share 0.069  comparisons/run 14.8  flips drawn 0.500 taken 0.402 refused 0.098  runs with a flip 0.829
+  widenings 0  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.320  per run 67.3
+clean drawn: chunks 2 runs 7844968 wall 600s runs/s 13074 failed 0
+  confirmed 0 (0.0/wall-hour, 1 in 7844968 runs)  unconfirmed 0  other unknown 0
+  solver share 0.041  comparisons/run 4.5  flips drawn 0.500 taken 0.353 refused 0.147  runs with a flip 0.828
+  widenings 0  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.337  per run 69.7
+clean open: chunks 2 runs 7221387 wall 600s runs/s 12036 failed 0
+  confirmed 0 (0.0/wall-hour, 1 in 7221387 runs)  unconfirmed 0  other unknown 0
+  solver share 0.049  comparisons/run 4.4  flips drawn 0.500 taken 0.364 refused 0.136  runs with a flip 0.838
+  widenings 0  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.339  per run 69.6
+recv_anchor drawn: chunks 2 runs 7802456 wall 600s runs/s 13004 failed 0
+  confirmed 3 (18.0/wall-hour, 1 in 2600819 runs)  unconfirmed 0  other unknown 0
+  solver share 0.043  comparisons/run 4.6  flips drawn 0.500 taken 0.376 refused 0.124  runs with a flip 0.847
+  widenings 0  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.276  per run 68.6
+recv_anchor open: chunks 2 runs 7173381 wall 600s runs/s 11955 failed 0
+  confirmed 3 (18.0/wall-hour, 1 in 2391127 runs)  unconfirmed 0  other unknown 0
+  solver share 0.048  comparisons/run 4.6  flips drawn 0.500 taken 0.377 refused 0.123  runs with a flip 0.847
+  widenings 0  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.276  per run 68.6

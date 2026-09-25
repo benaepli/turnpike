@@ -1,0 +1,346 @@
+# The exact simplex across spec shapes. One thread; 1,000 runs per cell (150 for idioms).
+# clean, recv_anchor, cached_flag: the lease panel specs. long: the clean spec with n=5 and more operations.
+# forms: comparisons over three readings and truetime (tt_width 40).
+# idioms: a span sent across nodes, a scaled and divided round trip, min, set_timer_at with a
+#         several-term deadline, three-reading comparisons, truetime plus a named duration.
+# No scale anchor anywhere. Last three columns are runs a second.
+
+dataset      level      | against Z3                   | simplex cost over the run          |   simplex        z3     yices
+clean        concrete   | differ from Z3 0 (0 comparisons) | median 0.0766 p99 0.3272 max 1.2134 |     10949       706      5392
+clean        durations  | differ from Z3 0 (0 comparisons) | median 0.1112 p99 0.3453 max 0.7611 |      9447       607      4779
+recv_anchor  concrete   | differ from Z3 0 (0 comparisons) | median 0.0824 p99 0.3178 max 0.9722 |     10755       678      5192
+recv_anchor  durations  | differ from Z3 0 (0 comparisons) | median 0.1166 p99 0.3925 max 0.6907 |      9042       585      4667
+cached_flag  concrete   | differ from Z3 0 (0 comparisons) | median 0.1182 p99 1.1221 max 1.5628 |      6523       499       502
+cached_flag  durations  | differ from Z3 0 (0 comparisons) | median 0.2088 p99 5.5770 max 11.6015 |      2449       232       316
+long         concrete   | differ from Z3 0 (0 comparisons) | median 0.1026 p99 2.6391 max 4.2818 |       380        56       696
+long         durations  | differ from Z3 0 (0 comparisons) | median 0.1290 p99 1.4402 max 2.0700 |       707        50       625
+forms        concrete   | differ from Z3 0 (0 comparisons) | median 0.1795 p99 6.1526 max 15.8735 |       798       129        39
+forms        durations  | differ from Z3 0 (0 comparisons) | median 0.2326 p99 3.8221 max 17.1396 |       982       145        40
+idioms       concrete   | differ from Z3 0 (0 comparisons) | median 0.6093 p99 41.8516 max 60.3239 |       130        48         5
+idioms       durations  | differ from Z3 0 (0 comparisons) | median 1.7403 p99 1394.1205 max 2165.2772 |         3         6         3
+
+# The budgeted simplex on the hard shapes, no anchor, columns fixed where the assignment has them.
+== idioms, durations, 150 runs
+setting                    |     kept   of all    holds  expired | gained    left | median    p99     max |  runs/s
+exact                      |     100%     100%        -        - |      0      0% |  1.942 1392.19 2153.78 |       3
+budget 256                 |   98.17%   91.51%   97.85%   98.40% |      0   2.00% |  1.887 229.27  508.56 |      41
+budget 128                 |   96.91%   65.54%   94.93%   98.29% |      0  11.33% |  1.871  38.56   46.20 |     178
+budget 64                  |   95.20%   44.30%   90.99%   98.07% |      0  28.67% |  1.592   4.69    4.76 |     446
+budget 32                  |   91.59%   13.48%   89.15%   93.03% |      0  59.33% |  0.774   5.24    8.59 |     663
+== idioms, concrete, 400 runs
+setting                    |     kept   of all    holds  expired | gained    left | median    p99     max |  runs/s
+exact                      |     100%     100%        -        - |      0      0% |  0.744  17.80   60.30 |     218
+budget 256                 |   99.84%   99.84%   99.68%  100.00% |      0   0.00% |  0.750   9.75   41.52 |     291
+budget 128                 |   99.31%   92.47%   98.60%  100.00% |      0   1.75% |  0.742   7.51   22.80 |     443
+budget 64                  |   98.14%   67.97%   96.21%   99.95% |      0   9.25% |  0.740   3.71    4.06 |     730
+budget 32                  |   96.13%   29.31%   92.32%   99.25% |      0  35.25% |  0.633   1.63    3.93 |    1159
+== forms, durations, 1000 runs
+setting                    |     kept   of all    holds  expired | gained    left | median    p99     max |  runs/s
+exact                      |     100%     100%        -        - |      0      0% |  0.292   3.91   17.41 |     972
+budget 256                 |   99.94%   99.94%   99.76%  100.00% |      0   0.00% |  0.290   4.00   10.51 |    1022
+budget 128                 |   99.54%   99.54%   98.33%   99.97% |      0   0.00% |  0.290   3.42    5.75 |    1271
+budget 64                  |   97.63%   96.11%   91.78%   99.74% |      0   3.00% |  0.286   2.29    5.52 |    1788
+budget 32                  |   91.79%   49.44%   78.89%   96.09% |      0  21.20% |  0.289   1.21    1.39 |    2609
+
+# After the idioms pass: a mild preference for unit pivots, a 64-bit fast path and a cheaper gcd in the
+# 128-bit tier, and repairing the most violated unknown once a check has taken 8 pivots.
+# Same cells, same cross-check.
+dataset      level      | against Z3                   | simplex cost over the run          |   simplex        z3     yices
+clean        concrete   | differ from Z3 0 (0 comparisons) | median 0.0772 p99 0.3676 max 0.9566 |     10712       708      5423
+clean        durations  | differ from Z3 0 (0 comparisons) | median 0.1111 p99 0.3530 max 0.8019 |      9828       606      4812
+recv_anchor  concrete   | differ from Z3 0 (0 comparisons) | median 0.0830 p99 0.2983 max 0.9154 |     11112       680      5210
+recv_anchor  durations  | differ from Z3 0 (0 comparisons) | median 0.1182 p99 0.3770 max 0.7477 |      8955       589      4661
+cached_flag  concrete   | differ from Z3 0 (0 comparisons) | median 0.1191 p99 1.0575 max 1.3778 |      6727       500       501
+cached_flag  durations  | differ from Z3 0 (0 comparisons) | median 0.2101 p99 6.0643 max 9.4251 |      2495       230       313
+long         concrete   | differ from Z3 0 (0 comparisons) | median 0.1042 p99 3.3651 max 5.1602 |       343        56       704
+long         durations  | differ from Z3 0 (0 comparisons) | median 0.1310 p99 1.5135 max 1.7796 |       696        51       636
+forms        concrete   | differ from Z3 0 (0 comparisons) | median 0.1835 p99 5.7714 max 12.1669 |       825       129        39
+forms        durations  | differ from Z3 0 (0 comparisons) | median 0.2390 p99 3.8895 max 8.5696 |      1036       145        40
+idioms       concrete   | differ from Z3 0 (0 comparisons) | median 0.6361 p99 17.9050 max 27.4985 |       190        47         5
+idioms       durations  | differ from Z3 0 (0 comparisons) | median 1.6795 p99 269.0907 max 489.1595 |        13         6         3
+
+# After the second idioms pass: rows as whole numbers over one denominator per row, a taken outcome that
+# is already implied adds no row, a new slack's value comes from its terms, a tier of 128-bit values over
+# 64-bit rows, and a 128-bit sum or product that does not fit is retried in lowest terms.
+# Same cells, same cross-check. Idioms concrete on the 400-run sample: 272 runs/s before the two passes,
+# 356 after the first, 558 after this one (open outcomes 26976 each time).
+dataset      level      | against Z3                   | simplex cost over the run          |   simplex        z3     yices
+clean        concrete   | differ from Z3 0 (0 comparisons) | median 0.0786 p99 0.3191 max 1.0634 |     10737       776      5932
+clean        durations  | differ from Z3 0 (0 comparisons) | median 0.1190 p99 0.3360 max 0.5728 |      9650       669      5041
+recv_anchor  concrete   | differ from Z3 0 (0 comparisons) | median 0.0866 p99 0.3159 max 0.6109 |     10469       714      5708
+recv_anchor  durations  | differ from Z3 0 (0 comparisons) | median 0.1178 p99 0.3516 max 0.5425 |      9305       644      4861
+cached_flag  concrete   | differ from Z3 0 (0 comparisons) | median 0.1151 p99 0.9669 max 1.1584 |      7263       553       526
+cached_flag  durations  | differ from Z3 0 (0 comparisons) | median 0.1787 p99 4.0299 max 6.4722 |      3228       245       310
+long         concrete   | differ from Z3 0 (0 comparisons) | median 0.0854 p99 1.5622 max 4.6856 |       540        71       793
+long         durations  | differ from Z3 0 (0 comparisons) | median 0.1203 p99 0.7096 max 1.7044 |      1021        64       705
+forms        concrete   | differ from Z3 0 (0 comparisons) | median 0.1392 p99 2.4143 max 4.0679 |      1686       172        53
+forms        durations  | differ from Z3 0 (0 comparisons) | median 0.2056 p99 1.7326 max 3.9312 |      1892       178        51
+idioms       concrete   | differ from Z3 0 (0 comparisons) | median 0.4367 p99 7.9370 max 10.3909 |       405        58         6
+idioms       durations  | differ from Z3 0 (0 comparisons) | median 0.7809 p99 112.6857 max 141.8203 |        33         7         4
+
+# Budgeted mode on idioms, concrete, 150 runs, after the same pass.
+setting                    |     kept   of all    holds  expired | gained    left | median    p99     max |  runs/s
+exact                      |     100%     100%        -        - |      0      0% |  0.509   8.01   10.82 |     408
+budget 256                 |   99.85%   99.85%   99.70%  100.00% |      0   0.00% |  0.501   8.44   10.27 |     421
+budget 128                 |   99.47%   97.20%   98.96%  100.00% |      0   0.67% |  0.499   5.52    6.48 |     554
+budget 64                  |   98.19%   71.99%   96.33%  100.00% |      0  10.00% |  0.503   2.47    2.59 |     823
+budget 32                  |   96.32%   29.03%   92.19%   99.69% |      0  32.67% |  0.516   1.42    2.88 |    1133
+
+# After the pass on idioms with durations open: a run whose numbers stop fitting goes on from a copy in
+# the next tier, the entering unknown is the least harmful of the four cheapest, new times enter the
+# basis through short ordering rows, columns list each row once, and rows are reduced lazily.
+# Same cells, same cross-check. Idioms on the 400-run sample, one thread: durations open 51 -> 235 runs/s
+# (open outcomes 32020), concrete 558 -> 795 (26976).
+dataset      level      | against Z3                   | simplex cost over the run          |   simplex        z3     yices
+clean        concrete   | differ from Z3 0 (0 comparisons) | median 0.0502 p99 0.1993 max 0.4168 |     15758       786      5904
+clean        durations  | differ from Z3 0 (0 comparisons) | median 0.0831 p99 0.2657 max 0.4042 |     11940       670      4860
+recv_anchor  concrete   | differ from Z3 0 (0 comparisons) | median 0.0553 p99 0.2370 max 0.4874 |     14763       714      5595
+recv_anchor  durations  | differ from Z3 0 (0 comparisons) | median 0.0813 p99 0.2793 max 0.4439 |     11461       642      4912
+cached_flag  concrete   | differ from Z3 0 (0 comparisons) | median 0.0699 p99 0.5427 max 0.6344 |     11664       557       529
+cached_flag  durations  | differ from Z3 0 (0 comparisons) | median 0.1226 p99 2.9256 max 4.3396 |      4456       244       312
+long         concrete   | differ from Z3 0 (0 comparisons) | median 0.0500 p99 0.3073 max 1.9165 |      1931        70       780
+long         durations  | differ from Z3 0 (0 comparisons) | median 0.0770 p99 0.3608 max 1.8213 |      1508        64       691
+forms        concrete   | differ from Z3 0 (0 comparisons) | median 0.0949 p99 2.0740 max 3.3992 |      1886       171        53
+forms        durations  | differ from Z3 0 (0 comparisons) | median 0.1411 p99 1.4196 max 2.8389 |      2313       178        50
+idioms       concrete   | differ from Z3 0 (0 comparisons) | median 0.3266 p99 3.7747 max 4.0395 |       606        58         6
+idioms       durations  | differ from Z3 0 (0 comparisons) | median 0.5751 p99 17.6219 max 27.4555 |       165         7         4
+
+# Budgeted mode on idioms, 150 runs, after the same pass: concrete, then durations open.
+setting                    |     kept   of all    holds  expired | gained    left | median    p99     max |  runs/s
+exact                      |     100%     100%        -        - |      0      0% |  0.389   3.82    4.28 |     617
+budget 256                 |   99.89%   99.89%   99.78%  100.00% |      0   0.00% |  0.378   3.83    3.97 |     630
+budget 128                 |   99.52%   94.76%   99.05%  100.00% |      0   2.00% |  0.375   2.70    3.10 |     814
+budget 64                  |   98.18%   71.57%   96.36%   99.98% |      0  12.00% |  0.383   1.81    2.01 |    1091
+budget 32                  |   95.78%   26.48%   92.05%   98.78% |      0  32.67% |  0.380   1.12    1.19 |    1501
+exact                      |     100%     100%        -        - |      0      0% |  0.665  17.62   28.66 |     165
+budget 256                 |   97.64%   87.97%   95.79%   98.99% |      0   2.67% |  0.659   4.53    5.55 |     471
+budget 128                 |   96.62%   70.39%   93.87%   98.56% |      0   9.33% |  0.650   3.95    4.34 |     641
+budget 64                  |   95.38%   43.88%   89.95%   99.02% |      0  27.33% |  0.663   2.89    3.19 |     863
+budget 32                  |   90.90%   12.43%   90.54%   91.12% |      0  60.67% |  0.490   2.49    2.70 |     929
+
+# After the fourth pass: a trial is a primal probe of the one row from the assignment that holds, first
+# with the run-wide unknowns (named durations) held by bounds, skipped while it keeps missing; a held
+# probe can close an outcome outright; new times are written into the tableau directly.
+# Same cells, same cross-check. Idioms on the 400-run sample, one thread: durations open 235 -> 296 runs/s
+# (open outcomes 32020), concrete 795 -> 1445 (26976). The target of 470 for durations open was not reached.
+dataset      level      | against Z3                   | simplex cost over the run          |   simplex        z3     yices
+clean        concrete   | differ from Z3 0 (0 comparisons) | median 0.0492 p99 0.1638 max 0.3728 |     17643       777      5911
+clean        durations  | differ from Z3 0 (0 comparisons) | median 0.0793 p99 0.2176 max 0.3003 |     13441       672      4952
+recv_anchor  concrete   | differ from Z3 0 (0 comparisons) | median 0.0539 p99 0.1885 max 0.3845 |     16616       718      5634
+recv_anchor  durations  | differ from Z3 0 (0 comparisons) | median 0.0773 p99 0.2464 max 0.3947 |     13561       646      4668
+cached_flag  concrete   | differ from Z3 0 (0 comparisons) | median 0.0676 p99 0.4511 max 0.5426 |     13124       545       529
+cached_flag  durations  | differ from Z3 0 (0 comparisons) | median 0.1178 p99 3.6652 max 5.6896 |      4068       245       312
+long         concrete   | differ from Z3 0 (0 comparisons) | median 0.0457 p99 0.2775 max 1.5954 |      2134        71       799
+long         durations  | differ from Z3 0 (0 comparisons) | median 0.0676 p99 0.3086 max 1.4084 |      1808        64       703
+forms        concrete   | differ from Z3 0 (0 comparisons) | median 0.0810 p99 1.1951 max 2.8855 |      3130       172        53
+forms        durations  | differ from Z3 0 (0 comparisons) | median 0.1289 p99 1.0034 max 2.2042 |      3092       178        51
+idioms       concrete   | differ from Z3 0 (0 comparisons) | median 0.2035 p99 2.0410 max 2.4106 |      1071        58         6
+idioms       durations  | differ from Z3 0 (0 comparisons) | median 0.5404 p99 12.1914 max 13.4295 |       214         7         4
+
+# Budgeted mode on idioms after the same pass. It does not use the probe or the held attempt.
+== budget, idioms durations, 150 runs
+setting                    |     kept   of all    holds  expired | gained    left | median    p99     max |  runs/s
+exact                      |     100%     100%        -        - |      0      0% |  0.615  12.32   13.51 |     215
+budget 256                 |   97.71%   85.19%   95.73%   99.14% |      0   3.33% |  0.605   5.49    5.68 |     483
+budget 128                 |   96.83%   73.02%   94.22%   98.67% |      0   8.00% |  0.595   3.63    5.21 |     711
+budget 64                  |   94.86%   48.17%   90.69%   97.70% |      0  25.33% |  0.602   2.40    3.00 |     931
+budget 32                  |   91.54%   13.07%   90.26%   92.28% |      0  56.67% |  0.483   3.38    4.13 |     755
+== budget, idioms concrete, 150 runs
+setting                    |     kept   of all    holds  expired | gained    left | median    p99     max |  runs/s
+exact                      |     100%     100%        -        - |      0      0% |  0.274   2.16    2.77 |    1122
+budget 256                 |   99.86%   99.86%   99.73%  100.00% |      0   0.00% |  0.356   3.65    3.68 |     660
+budget 128                 |   99.48%   97.72%   99.00%   99.98% |      0   0.67% |  0.369   2.72    2.77 |     858
+budget 64                  |   98.15%   69.40%   96.23%  100.00% |      0  10.00% |  0.363   1.70    1.83 |    1158
+budget 32                  |   96.36%   26.87%   92.74%   99.24% |      0  31.33% |  0.360   1.07    1.96 |    1548
+setting                    |     kept   of all    holds  expired | gained    left | median    p99     max |  runs/s
+exact                      |     100%     100%        -        - |      0      0% |  0.669  10.62   13.76 |     294
+budget 256                 |   98.01%   88.61%   96.87%   98.83% |      0   2.25% |  0.682   5.57    8.45 |     581
+budget 128                 |   97.39%   76.44%   94.80%   99.17% |      0   6.75% |  0.676   3.66    8.62 |     804
+budget 64                  |   95.14%   52.67%   91.85%   97.34% |      0  23.25% |  0.679   2.34    3.74 |    1101
+budget 32                  |   91.84%   14.45%   91.28%   92.20% |      0  59.25% |  0.483   3.38    5.09 |     902
+
+# Budgeted mode with the probe and the held attempt ported to it. An outcome the probe finds open is open
+# in the system the budget leaves, which is inside the real one; no outcome gained anywhere.
+== idioms, durations, 400 runs
+setting                    |     kept   of all    holds  expired | gained    left | median    p99     max |  runs/s
+exact                      |     100%     100%        -        - |      0      0% |  0.676  10.76   13.83 |     293
+budget 256                 |   98.24%   89.23%   96.56%   99.43% |      0   2.25% |  0.654   3.97    9.17 |     691
+budget 128                 |   97.04%   75.81%   95.15%   98.33% |      0   7.50% |  0.655   3.65    4.88 |     918
+budget 64                  |   95.39%   50.87%   92.06%   97.59% |      0  24.75% |  0.655   1.68    3.15 |    1244
+budget 32                  |   90.37%   14.62%   89.44%   90.96% |      0  60.50% |  0.504   1.96    2.87 |    1206
+== idioms, concrete, 400 runs
+setting                    |     kept   of all    holds  expired | gained    left | median    p99     max |  runs/s
+exact                      |     100%     100%        -        - |      0      0% |  0.288   1.94    2.84 |    1444
+budget 256                 |   99.87%   99.87%   99.74%  100.00% |      0   0.00% |  0.282   2.04    2.52 |    1412
+budget 128                 |   99.41%   95.85%   98.81%  100.00% |      0   1.00% |  0.278   1.49    1.72 |    1694
+budget 64                  |   98.48%   87.15%   96.91%  100.00% |      0   4.75% |  0.288   1.05    1.22 |    1987
+budget 32                  |   95.86%   33.69%   92.05%   99.10% |      0  31.75% |  0.297   1.19    1.23 |    1893
+== forms, durations, 1000 runs
+setting                    |     kept   of all    holds  expired | gained    left | median    p99     max |  runs/s
+exact                      |     100%     100%        -        - |      0      0% |  0.170   1.11    2.37 |    3140
+budget 256                 |   99.96%   99.96%   99.85%  100.00% |      0   0.00% |  0.161   1.07    2.37 |    3043
+budget 128                 |   99.69%   99.22%   98.90%   99.98% |      0   0.20% |  0.160   0.86    1.45 |    3547
+budget 64                  |   98.00%   96.24%   92.98%   99.80% |      0   2.50% |  0.166   0.77    0.96 |    3851
+budget 32                  |   93.05%   59.04%   79.22%   97.78% |      0  23.50% |  0.171   0.88    1.10 |    3955
+== cached_flag, durations, 1000 runs
+setting                    |     kept   of all    holds  expired | gained    left | median    p99     max |  runs/s
+exact                      |     100%     100%        -        - |      0      0% |  0.150   3.86    6.44 |    4079
+budget 256                 |   92.42%   87.97%   88.13%  100.00% |      0   0.40% |  0.145   2.23    3.14 |    5556
+budget 128                 |   89.64%   77.43%   84.57%   99.80% |      0   0.90% |  0.141   0.96    2.41 |    7348
+budget 64                  |   77.46%   56.50%   68.61%   99.86% |      0   1.90% |  0.139   0.69    0.76 |    8836
+budget 32                  |   60.67%   39.82%   48.89%   98.54% |      0   6.60% |  0.140   0.57    0.63 |   10017
+
+# After the redesign: the unknowns a whole run shares (named durations) never enter the basis. The rest is
+# solved with them where they are; a row that cannot be repaired gives a condition on them that every
+# solution meets; new values come from those conditions, and an outcome is closed when none meet them.
+# Idioms, 400 runs, one thread: durations open 296 -> 635 runs/s (open outcomes 32020), no run leaves 64 bits.
+dataset      level      | against Z3                   | simplex cost over the run          |   simplex        z3     yices
+clean        concrete   | differ from Z3 0 (0 comparisons) | median 0.0391 p99 0.1371 max 0.3448 |     20667       791      5865
+clean        durations  | differ from Z3 0 (0 comparisons) | median 0.0812 p99 0.1849 max 0.2983 |     15172       681      5034
+recv_anchor  concrete   | differ from Z3 0 (0 comparisons) | median 0.0424 p99 0.1563 max 0.3462 |     19976       720      5729
+recv_anchor  durations  | differ from Z3 0 (0 comparisons) | median 0.0833 p99 0.2143 max 0.4428 |     15045       650      4857
+cached_flag  concrete   | differ from Z3 0 (0 comparisons) | median 0.0536 p99 0.4048 max 0.4951 |     15303       553       533
+cached_flag  durations  | differ from Z3 0 (0 comparisons) | median 0.1047 p99 0.5224 max 0.5962 |     10476       247       312
+long         concrete   | differ from Z3 0 (0 comparisons) | median 0.0369 p99 0.2624 max 1.5210 |      2321        72       799
+long         durations  | differ from Z3 0 (0 comparisons) | median 0.0620 p99 0.2917 max 1.2283 |      1998        63       708
+forms        concrete   | differ from Z3 0 (0 comparisons) | median 0.0667 p99 1.1482 max 2.8621 |      3324       175        53
+forms        durations  | differ from Z3 0 (0 comparisons) | median 0.1701 p99 0.9255 max 2.0477 |      3197       181        51
+idioms       concrete   | differ from Z3 0 (0 comparisons) | median 0.1716 p99 2.0095 max 2.3434 |      1119        59         6
+idioms       durations  | differ from Z3 0 (0 comparisons) | median 0.3949 p99 5.4347 max 5.5021 |       478         7         4
+
+# After tuning the redesign: the small problem over the parameters kept between calls, room asked for as a
+# share of their size, the unused row of an outcome found closed discarded. Same cells, same cross-check.
+# Idioms, 400 runs, one thread: durations open 296 -> 756 runs/s (open outcomes 32020).
+# All 2000 idioms runs, durations open, one process: 667 runs/s on 1 thread, 4437 on 8, 7346 on 16; peak memory 1.2 to 1.7 GB.
+dataset      level      | against Z3                   | simplex cost over the run          |   simplex        z3     yices
+clean        concrete   | differ from Z3 0 (0 comparisons) | median 0.0395 p99 0.1379 max 0.3451 |     19490       801      5923
+clean        durations  | differ from Z3 0 (0 comparisons) | median 0.0827 p99 0.1863 max 0.2962 |     14951       685      5032
+recv_anchor  concrete   | differ from Z3 0 (0 comparisons) | median 0.0422 p99 0.1553 max 0.3398 |     19348       727      5669
+recv_anchor  durations  | differ from Z3 0 (0 comparisons) | median 0.0850 p99 0.2211 max 0.4245 |     14895       657      4927
+cached_flag  concrete   | differ from Z3 0 (0 comparisons) | median 0.0544 p99 0.3998 max 0.5032 |     15034       568       528
+cached_flag  durations  | differ from Z3 0 (0 comparisons) | median 0.1040 p99 0.4923 max 0.5327 |     10991       249       313
+long         concrete   | differ from Z3 0 (0 comparisons) | median 0.0371 p99 0.2564 max 1.4826 |      2375        72       801
+long         durations  | differ from Z3 0 (0 comparisons) | median 0.0604 p99 0.2893 max 1.2226 |      2005        65       713
+forms        concrete   | differ from Z3 0 (0 comparisons) | median 0.0659 p99 1.1077 max 2.3578 |      3460       175        53
+forms        durations  | differ from Z3 0 (0 comparisons) | median 0.1310 p99 0.7929 max 1.9480 |      3578       180        51
+idioms       concrete   | differ from Z3 0 (0 comparisons) | median 0.1728 p99 2.1006 max 2.2166 |      1165        59         6
+idioms       durations  | differ from Z3 0 (0 comparisons) | median 0.3474 p99 3.9924 max 4.0081 |       589         7         4
+
+# After a pass on allocation: row and column buffers recycled, watcher lists as chains through one list,
+# ordering rows not entered in the slack map, a constraint row reduced once when built.
+# Idioms, 400 runs, one thread: durations open 756 -> 813 runs/s (open outcomes 32020), concrete 1525 -> 1780.
+# The target of another doubling (1512) was not reached. With the fast-alloc feature (mimalloc, a diagnostic) the
+# build before this pass gave 873 and 1992, against 756 and 1611 with the system allocator.
+dataset      level      | against Z3                   | simplex cost over the run          |   simplex        z3     yices
+clean        concrete   | differ from Z3 0 (0 comparisons) | median 0.0323 p99 0.1118 max 0.3074 |     23165       793      5967
+clean        durations  | differ from Z3 0 (0 comparisons) | median 0.0702 p99 0.1393 max 0.2389 |     17970       683      5043
+recv_anchor  concrete   | differ from Z3 0 (0 comparisons) | median 0.0338 p99 0.1159 max 0.3156 |     23077       736      5729
+recv_anchor  durations  | differ from Z3 0 (0 comparisons) | median 0.0725 p99 0.1604 max 0.3654 |     16745       656      4966
+cached_flag  concrete   | differ from Z3 0 (0 comparisons) | median 0.0449 p99 0.3503 max 0.4524 |     16943       563       533
+cached_flag  durations  | differ from Z3 0 (0 comparisons) | median 0.0868 p99 0.4121 max 0.4523 |     12642       248       313
+long         concrete   | differ from Z3 0 (0 comparisons) | median 0.0298 p99 0.2329 max 1.3602 |      2696        72       802
+long         durations  | differ from Z3 0 (0 comparisons) | median 0.0480 p99 0.2546 max 1.0238 |      2394        65       712
+forms        concrete   | differ from Z3 0 (0 comparisons) | median 0.0529 p99 0.9950 max 2.2071 |      3747       176        53
+forms        durations  | differ from Z3 0 (0 comparisons) | median 0.1104 p99 0.6842 max 1.8167 |      4045       180        51
+idioms       concrete   | differ from Z3 0 (0 comparisons) | median 0.1363 p99 1.9128 max 2.0333 |      1315        59         6
+idioms       durations  | differ from Z3 0 (0 comparisons) | median 0.2929 p99 3.7064 max 3.7590 |       614         7         4
+
+# After a second pass on allocation, with the system allocator throughout: row and column buffers kept per
+# thread between runs, outer lists sized from the script, column lists started with room, slack terms kept
+# end to end in one list. Allocator calls a run on idioms (400 runs): durations open 3569 -> 1268, concrete
+# 2006 -> 408. Idioms, 400 runs, one thread: durations open 813 -> 870 runs/s, concrete 1780 -> 1979.
+# All 2000 idioms runs, durations open, one process: 784 runs/s on 1 thread, 7617 on 16; peak memory 1.2 and 2.0 GB.
+dataset      level      | against Z3                   | simplex cost over the run          |   simplex        z3     yices
+clean        concrete   | differ from Z3 0 (0 comparisons) | median 0.0202 p99 0.0665 max 0.2822 |     28622       804      5945
+clean        durations  | differ from Z3 0 (0 comparisons) | median 0.0484 p99 0.0917 max 0.1998 |     21409       686      5092
+recv_anchor  concrete   | differ from Z3 0 (0 comparisons) | median 0.0212 p99 0.0713 max 0.2555 |     29240       731      5730
+recv_anchor  durations  | differ from Z3 0 (0 comparisons) | median 0.0503 p99 0.1057 max 0.3326 |     20370       660      4960
+cached_flag  concrete   | differ from Z3 0 (0 comparisons) | median 0.0270 p99 0.2704 max 0.3618 |     20623       566       534
+cached_flag  durations  | differ from Z3 0 (0 comparisons) | median 0.0600 p99 0.3342 max 0.3613 |     15197       249       316
+long         concrete   | differ from Z3 0 (0 comparisons) | median 0.0183 p99 0.1981 max 1.1737 |      3225        72       804
+long         durations  | differ from Z3 0 (0 comparisons) | median 0.0326 p99 0.2198 max 0.8588 |      2878        64       713
+forms        concrete   | differ from Z3 0 (0 comparisons) | median 0.0336 p99 0.8819 max 2.0128 |      4446       175        53
+forms        durations  | differ from Z3 0 (0 comparisons) | median 0.0750 p99 0.5811 max 1.6453 |      4790       181        51
+idioms       concrete   | differ from Z3 0 (0 comparisons) | median 0.0910 p99 1.7822 max 1.8707 |      1434        59         6
+idioms       durations  | differ from Z3 0 (0 comparisons) | median 0.2341 p99 3.4752 max 3.5343 |       661         7         4
+
+# Across threads, one process at a time under the memory cap. SYMTIME_REPEAT solves every script that many
+# times so that a batch lasts long enough to time; runs/s counts every solve. Durations open unless said.
+# dataset (runs x repeat) | 1 thread | 2 | 4 | 8 | 16 | 24 | 32 | peak memory at 16 threads
+idioms (2000 x8)               |    782 |  1530 |  2909 |   5351 |   9690 |  10437 |  10731 | 2.6 GB
+idioms concrete (2000 x16)     |   1790 |  3458 |  6475 |  11576 |  19481 |  19908 |  19733 | 2.5 GB
+clean (20000 x16)              |  23945 |     - |     - | 177301 | 335265 |      - |      - | 2.6 GB
+receipt anchor (20000 x16)     |  23104 |     - |     - | 170681 | 324040 |      - |      - | 2.6 GB
+cached flag (20000 x16)        |  17218 |     - |     - | 123376 | 231296 |      - |      - | 2.9 GB
+long (2016 x16)                |   2899 |     - |     - |  18784 |  31601 |      - |      - | 1.9 GB
+forms (2000 x8)                |   4903 |     - |     - |  33408 |  58391 |      - |      - | 1.1 GB
+
+# After time rows that mention the time before them by name (4 rows copied per new time before, one shared
+# now). 150 runs, one thread, Z3 cross-check on every cell.
+dataset      level      | against Z3                   | left to concrete | simplex cost over the run          |   simplex        z3     yices
+clean        concrete   | differ from Z3 0 (0 comparisons) | 0 of 230         | median 0.0208 p99 0.0553 max 0.0977 |     20181       790      6356
+clean        durations  | differ from Z3 0 (0 comparisons) | 0 of 230         | median 0.0533 p99 0.0851 max 0.1447 |     15592       684      4911
+cached_flag  concrete   | differ from Z3 0 (0 comparisons) | 0 of 1750        | median 0.0312 p99 0.1618 max 0.1685 |     16030       382       298
+cached_flag  durations  | differ from Z3 0 (0 comparisons) | 0 of 1750        | median 0.0680 p99 0.2365 max 0.2421 |     11636       156       175
+long         concrete   | differ from Z3 0 (0 comparisons) | 0 of 650         | median 0.0219 p99 0.0963 max 0.0979 |      3786        66       784
+long         durations  | differ from Z3 0 (0 comparisons) | 0 of 650         | median 0.0384 p99 0.1155 max 0.1185 |      3197        59       688
+forms        concrete   | differ from Z3 0 (0 comparisons) | 0 of 5088        | median 0.0382 p99 0.4229 max 0.5938 |      6111       149        43
+forms        durations  | differ from Z3 0 (0 comparisons) | 0 of 5088        | median 0.0901 p99 0.5272 max 0.6832 |      5012       152        40
+idioms       concrete   | differ from Z3 0 (0 comparisons) | 0 of 18484       | median 0.1086 p99 0.7092 max 0.7159 |      2485        59         6
+idioms       durations  | differ from Z3 0 (0 comparisons) | 0 of 18484       | median 0.2716 p99 2.2544 max 2.4029 |       928         7         4
+
+# The three harder fixtures after the same change, 60 runs, one thread. Z3 does not finish the long runs of
+# chains and crossclock with durations open inside 20 minutes, so those two cells were checked on fewer runs:
+# crossclock durations 20 runs (3,987 comparisons), chains durations nine short runs (611 comparisons); no
+# answer differs. The one long chains run among the first twenty (1,583 comparisons) is not checked.
+dataset      level      | against Z3                   | left to concrete | simplex cost over the run          |   simplex        z3     yices
+webs         concrete   | differ from Z3 0 (0 comparisons) | 0 of 6097        | median 0.0924 p99 0.8506 max 0.9357 |      2255        87        14
+webs         durations  | differ from Z3 0 (0 comparisons) | 0 of 6097        | median 0.9869 p99 7.9536 max 13.6194 |       245         4         4
+chains       concrete   | differ from Z3 0 (0 comparisons) | 0 of 8524        | median 0.2235 p99 3.3269 max 4.3659 |       726         2      over
+chains       durations  | over the 1200 s cap
+crossclock   concrete   | differ from Z3 0 (0 comparisons) | 0 of 19236       | median 0.6447 p99 24.2546 max 36.0874 |        95         1      over
+crossclock   durations  | over the 1200 s cap
+
+# After looking for new values of the lasting unknowns near the present ones in runs where a move is costly
+# (4 pivots or more each on average over at least 8 moves), with a second play from nothing for a run that
+# left comparisons to concrete time. Durations open, one thread, runs/s before -> after:
+# chains (200 runs) 31 -> 96, the same 22,614 open outcomes; forms (2,000) 6,168 -> 6,188; idioms (400)
+# about 1,225 -> 1,199; webs (200) 180 -> 175 (220 without the second play, which then leaves 1,198
+# comparisons to concrete time); crossclock (400) about 103 -> 94 (108 without), comparisons left to concrete
+# time 3,446 -> 2,048. Against Z3 with durations open: idioms 100 runs, forms 150, webs 40, crossclock 20 and
+# nine short chains runs, no answer differs. The long chains runs are past what Z3 finishes.
+
+# After short steps and a second tableau in runs where moving the lasting unknowns is costly. Durations
+# open, one thread, runs/s: chains (200 runs) 96 -> 118, webs (200) 175 -> 238, crossclock (400) 94 -> 91 with
+# 1,505 comparisons left to concrete time (2,048 before), idioms (400) about 1,208, forms (2,000) about 6,054.
+# Against Z3 with durations open: webs 60 runs, idioms 100, forms 150, crossclock 20 and nine short chains
+# runs, no answer differs.
+
+# After the second tableau chosen by what trials cost (a costly trial that follows another comparison's
+# costly trial in the same tableau moves to the other one). One thread, runs/s. Durations open: chains (200
+# runs) 118 -> 243, webs (200) 238 -> 260, crossclock (400) 91 -> 91, idioms (400) 1,208 -> 1,192, forms (2,000)
+# 6,054 -> 6,068. Concrete: chains 796 -> 735, crossclock 271 -> 239 (one run played twice, nothing left to
+# concrete time), webs, idioms, forms, long unchanged. Against Z3: durations open webs 60 runs, idioms 100,
+# forms 150, crossclock 20, nine short chains runs; concrete chains 60, crossclock 60, idioms 150. No answer
+# differs and nothing is left to concrete time in any of them.
+
+# After gluing finished times to a neighbour (a finished time whose accepted rows all allow it to move one
+# way is taken as equal to the neighbour on that side). One thread, runs/s on the same runs. Durations open:
+# chains (200 runs) 243 -> 281, webs (300) 252 -> 268, crossclock (300) 86 -> 89, idioms (600) 1,129 -> 1,292,
+# forms (1,500) 5,961 -> 5,936, long (600) 3,713 -> 3,938. Concrete: chains 743 -> 863, webs 2,325 -> 2,551,
+# crossclock 201 -> 262, idioms 3,000 -> 3,069, forms 7,862 -> 8,041, long 4,524 -> 4,768. Against Z3, durations
+# open and concrete: chains 5 runs, webs 60, crossclock 20, idioms 100, forms 150, long 200, cached flag 300;
+# no answer differs and nothing is left to concrete time in any of them.
+
+# After a trial that would move the durations asks each other tableau first (a capped probe, no move) and
+# only then moves in its own. Runs both settings finish, one thread, durations open: crossclock (300 runs)
+# 1.14, webs (300) 1.07, chains (200) 0.98, idioms (400) 0.99, forms (1,500) 0.98. Against Z3, durations open and
+# concrete: chains 5 runs, webs 60, crossclock 20, idioms 100, forms 150, long 200, cached flag 300; no answer
+# differs and nothing is left to concrete time in any of them.
+
+# The same solver over floats (--backend float, tolerance 1e-7, checks capped at 4,096 pivots), durations open,
+# one thread, runs/s exact -> float: webs (400 runs) 249 -> 520, chains (400) 259 -> 399, crossclock (400)
+# 109 -> 245, idioms (1,000) 1,298 -> 1,545, forms (2,000) 5,853 -> 5,763, long (1,000) 4,125 -> 3,880, cached
+# flag (2,000) 15,909 -> 13,942. Against Z3: webs 60 runs 3 comparisons open where Z3 says closed; crossclock 20,
+# idioms 100, forms 150, long 200, cached flag 300 equal. Chains answers closed for 1.9% of the exact solver's
+# open outcomes.

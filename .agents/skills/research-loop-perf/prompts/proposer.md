@@ -14,7 +14,7 @@
 - Never propose measurement, census, or profiling work on its own; a change
   that needs a new counter adds it in the same commit.
 - Change only the subject: `spur/` or `scheduler_configs/loop/`. Never the
-  harness, the orchestrator, the grader, the evaluation protocol, or the
+  harness, the grader, the evaluation protocol, or the
   campaign arm set of the campaign template (an arm change moves the unit of
   comparison and the grader refuses it).
 - A dependency is part of the subject: adding one, dropping one, or swapping

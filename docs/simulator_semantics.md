@@ -123,6 +123,11 @@ When a new runnable is created, it is routed to its queue based on type:
 | `Record` (local: origin == node)   | Local queue of the node        |
 | `Record` (remote: origin != node)  | Network queue                  |
 
+A local `Record` is what `spawn f()` creates at once, and what a plain local
+async call creates when its callee reaches its first yield point. A remote one
+is what an RPC creates. A callee that returns before any yield point creates
+none at all.
+
 ### Scheduling
 
 Each simulation step proceeds in two phases:
@@ -132,12 +137,18 @@ Each simulation step proceeds in two phases:
 
 ## Purgatory (Message Delays)
 
-Purgatory is an optional mechanism that temporarily removes network messages from the scheduler's view, simulating variable message latency.
+Purgatory is an optional mechanism that temporarily removes messages from the scheduler's view, simulating variable message latency.
 
-- Only **remote `ChannelSend`** runnables can be delayed. Local sends, Records, Timers, and fault events are never delayed.
-- When a remote `ChannelSend` is created, it has a `delay_probability` chance of entering purgatory instead of the network queue.
+- A hold applies to the **request half** of a message: the `Record` an async call creates (an RPC, or a client operation's call into a node) and a `ChannelSend` to a channel owned by another node. The reply to an awaited call is written into the caller's channel directly and is never held. Timers and fault events are never held.
+- A send whose destination is the sending node itself, such as an async call a node makes on its own role, is a task on that node rather than a message on the network. It is never held unless `purgatory.hold_local_sends` is set.
+- A send selected for a hold into a node that is currently crashed is let through when `purgatory.hold_down_receivers` is false.
+- When a send is created, it has a `delay_probability` chance of entering purgatory instead of its queue. The selection roll and the duration draw happen for every send, including one the two toggles above let through, so switching a toggle changes only the sends it names and leaves every other send's draws in place. Exact replay records one delay entry per send.
 - The delay duration is sampled log-uniformly from `delay_duration_range` (measured in simulation steps). The item becomes eligible for release after `current_step + duration` steps.
-- At the start of each simulation step, eligible items are released from purgatory into the network queue. Normal crash and partition checks then apply at scheduling time.
+- At the start of each simulation step, eligible items are released from purgatory into their normal queue. Normal crash and partition checks then apply at scheduling time.
+
+### Crash Interaction
+
+A crash drops the held tasks the crashed node spawned on itself, with the rest of its volatile state. A held message from another node stays held: it is on the network, and meets the crash when it is scheduled, where it is buffered for redelivery on recovery like any other message to a crashed node.
 
 ### Partition Interaction
 
@@ -193,10 +204,224 @@ Labels give the plan system fine-grained control over timer ordering. When `stri
 
 This means the `"election"` timer of `nodes[2]` can only fire after the write `w1` completes. Unlabeled timers are unaffected by `strict_timers` and may fire at any time.
 
+### Timed Timers
+
+`set_timer_after(duration [, label])` and `set_timer_at(deadline [, label])`
+add a clock constraint to the same timer. `set_timer_after` samples the
+node's monotonic clock and registers `reading + duration`; `set_timer_at`
+registers the deadline it is given. Both return `chan<()>`, and the plain
+`set_timer` is unchanged.
+
+A timed timer becomes **eligible** only when its owner's monotonic clock
+reaches its deadline. Eligibility, delivery and the resumption of the waiting
+task are three separate events: an eligible timer may be delivered much
+later, and there is no maximum lateness. A negative duration is a runtime
+error; a zero duration, and a deadline already at or behind the reading, are
+eligible immediately.
+
+Under `strict_timers` a labeled timed timer needs both its `allow_timer`
+permission and a reached deadline. A permission never advances time, and an
+advance never grants a permission.
+
 ### Timers and Crashes
 
-- When a node crashes, all of its pending timers are **dropped**.
+- When a node crashes, all of its pending timers are **dropped**, including
+  a timed timer already past its deadline.
 - If a timer fires while its node is crashed, it is silently discarded.
+
+## Virtual Time
+
+The public API uses `Duration`, `MonoInstant`, and `Timestamp`, with
+[typed time algebra](../spur/design/language.md#time-values). Arithmetic is
+exact rational arithmetic. Monotonic instants retain their clock owner and
+epoch through messages and persistence; direct cross-clock comparisons and
+foreign timer deadlines are runtime errors. The epoch survives process recovery.
+There is no time-to-integer conversion. A fractional timer bound becomes
+eligible at its ceiling on the concrete clock lattice. Negative durations
+are rejected before rounding, and unrepresentable timer bounds fail.
+Typed operations remain distinct through both interpreters. In the default
+concrete mode no solver is involved; [symbolic time](#symbolic-time) is an
+explorer mode that leaves time open instead.
+
+A specification can declare [named durations](../spur/design/language.md#named-durations)
+and relationships without choosing numeric timeout values. Before any role
+initializer runs, each module-qualified timing block receives one positive
+assignment, shared by all nodes and preserved across process recovery. The
+assignment has a separate deterministic seed stream derived from the run's
+clock seed and block name. A program without timing blocks consumes no duration
+sampling draws.
+
+The sampler solves homogeneous linear requirements with exact rational
+arithmetic, samples a feasible rational witness, then clears denominators and
+adds an internal scale based on distance from strict constraint boundaries.
+The scale leaves at least 64 internal units of separation in duration space
+from each strict boundary, without changing any ratio. If this precision
+cannot fit the integer range, that witness fails as unrepresentable.
+It never rounds a witness onto a grid that invalidates
+a relationship. Equalities and strict inequalities remain exact. Contradictory
+requirements, finite projection limits, and an unrepresentable sampled witness
+are distinct run failures. The limits are 32 fields, 8192 projected inequalities,
+and 4096 bits per rational component. This solves only the parameter domain;
+protocol execution and scheduling remain concrete and incomplete exploration.
+No unmentioned safety condition is added by the sampler.
+
+Time advances prefer pending timer deadlines and include single internal-unit
+steps. Other sampled advances also track the magnitude of the assigned durations,
+so a large internal scale does not leave a clock-only wait effectively frozen.
+Plans can advance a named duration or a rational multiple of it. Fractions round
+up to a positive internal unit; no positive advance becomes a no-op.
+
+The domain relationships are scale invariant. Whole executions need not be:
+integer clock rounding and legacy `tt_width`
+and `origin_spread` settings use internal units. Named durations do not silently
+rescale those TrueTime assumptions. A domain accessor alone introduces no
+process checkpoint and does not observe elapsed time.
+
+The simulator keeps a hidden, nondecreasing global time `T`, counted in
+abstract ticks. A tick is not an interpreter instruction, a scheduler step,
+or a unit of host time. Protocol code cannot read `T`.
+
+- `mono_now()` reads the executing node's monotonic clock,
+  `origin_i + floor(rate_i * T)`, with `rate_i` inside `[1 - rho, 1 + rho]`.
+  Origins and rates are drawn per node and recorded, and each reading is
+  recomputed from `T`, so fractional progress survives many small advances.
+  Readings never decrease but consecutive ones may be equal, and the clock
+  keeps running while the process is paused or crashed.
+- `tt_now()` returns a `std::time::Interval` that contains the global time at
+  which it was taken, with a full width at most the configured `tt_width`.
+  Its width and its placement around that time are both drawn, so the
+  midpoint is not an exact clock. The value is immutable: it does not advance
+  while it is stored, sent or persisted, and it need not contain the time at
+  which its holder acts on it.
+- `std::time::tt_after(t)` and `std::time::tt_before(t)` each take one fresh
+  observation and compare one endpoint strictly. A false result means the
+  observation does not establish the predicate, not that its opposite holds.
+
+A **time advance** is a scheduler action of its own. It runs no protocol
+code, fires no timer and costs one step whatever its size. It is offered
+beside ordinary work, and it is the only action left when every queue is
+empty, so a clock-only protocol and a durationless polling wait both make
+progress without any timed timer in the deployment. A run with an advance
+still available is never reported as deadlocked. In `run-plan` the scheduler
+samples no advances: time moves only through `advance_time` events.
+
+Process failure is a **process restart**, not a machine reboot: the
+monotonic clock continues in the same epoch across a crash, with its rate and
+origin unchanged, and persisted time values come back as the same integers.
+Nothing inserts a recovery wait, a deadline conversion or a lease grace
+period.
+
+Numbers are signed 64-bit, like Spur's `int`. Negative origins, negative
+readings and past deadlines are all valid; a clock result, a deadline sum or
+a time advance outside the representable range is a runtime error rather than
+a wrap.
+
+A recorded execution can be taken again exactly: `record_replay` writes an
+artifact per run and `spur replay` executes its actions and observations
+rather than redrawing them. See
+[Simulator Options](simulator_options.md#record_replay).
+
+Lease validity, commit waits and recovery waits stay protocol code. The
+simulator never supplies a missing safety check and never revokes authority
+when a lease expires.
+
+## Symbolic Time
+
+With `"time": {"mode": "symbolic"}` (see
+[Simulator Options](simulator_options.md#time)) the explorer leaves global
+time open instead of drawing it. Each scheduler step that reads time gets an
+unknown at or after the previous step's, a monotonic reading is
+`origin_i + rate_i * t` with no floor, and a TrueTime read gives two unknowns
+`earliest <= t <= latest` at most `tt_width` apart. Protocol code sees the
+same types and operations as in concrete mode.
+
+- **Comparisons are decisions.** A comparison between times that are not both
+  numbers draws an outcome, and an exact linear solver checks that the rows
+  accepted so far still hold with it. An outcome that cannot hold is refused
+  and the outcome the present values already give is taken. Equality and
+  `min` are decisions with more than two outcomes. The outcome is kept, so a
+  later comparison cannot contradict it.
+- **Timed timers.** A timed timer whose deadline the present values put after
+  its owner's clock is withheld; with chance `early_fire_weight`, and always
+  when nothing else can run, the earliest is released and time is required
+  to have reached it. There are no sampled time advances: time moves as far
+  as the decisions taken need.
+- **Barriers.** Where a time is used structurally (a map key, `index_of`,
+  equality of values that contain a time, map iteration order) its unknowns
+  are fixed at their present values and it becomes a number.
+- **Durations.** Under `durations: "sampled"` a named duration is the number
+  its run sampled. Under `"open"` it is an unknown that starts there and is
+  held to its timing block's requirements; a run that reads TrueTime with
+  `tt_width > 0` is not scale free, so it keeps its sampled durations and its
+  `runs` row says so.
+- **Concession.** When the exact numbers outgrow 128 bits, a solver limit is
+  reached, or the solver's cost passes the configured cap, the run concedes:
+  it goes on concretely from a point meeting everything it accepted, a
+  whole-tick one where one can be found near the solver's own. A run with no
+  such point within the clocks' range ends there, with end reason
+  `time_conceded_without_point`.
+
+**Verdicts.** A symbolic history that is not linearizable is a candidate. Its
+witness, whole ticks at which every accepted row still holds with the clocks
+floored as a concrete run floors them, is written as a version-3 replay
+artifact and replayed concretely by `spur replay` in a child process, which
+checks every time decision as it meets it. The candidate is a violation,
+reason `confirmed_by_replay`, only when the replay reaches the recorded
+endpoint and its own history is illegal; otherwise it is unknown, reason
+`candidate_unconfirmed: <why>`, and the session exits 4. Deferred checks
+block rather than pass to the Go checker, which warns when an output holds
+symbolic runs. A symbolic replay artifact replayed with `spur replay` takes
+the same decisions again and reaches the same endpoint.
+
+## Process Checkpoints and the Placed Pause
+
+A clock read or a timed-timer registration is a *process checkpoint*,
+wherever it is written: in an async body, inside a synchronous helper it
+calls, or inside a local async call running in its caller. An untimed
+`set_timer()` is not one, because it captures no reading.
+
+A pause inside a call freezes the calling process with it. The whole frame
+stack parks and the whole frame stack resumes, so a helper is still atomic
+against other work on its own node; what it is no longer atomic against is
+time and the other nodes, which keep moving while it is held.
+
+With no reservation a checkpoint costs nothing: the read completes and
+execution continues inside the same scheduling step. With one, the process
+**pauses** after the read, holding the value it captured.
+
+A pause is an injected fault, in the same sense as a crash:
+
+- All protocol execution on that node freezes. Other nodes run, global time
+  and the clocks advance, and incoming messages queue.
+- Timers may become eligible and deliver their notifications, but no timer
+  consumer or other handler on the paused node runs.
+- A crash of the paused node is still selectable. It cancels the pause,
+  discards the saved frame and the notifications and waiting tasks that were
+  volatile, and settles any matching resume, so no old continuation resumes
+  after recovery.
+- A pause in `RecoverInit` does not release the initialization barrier: the
+  node's buffered handlers stay queued.
+- Resuming clears the slot and runs the interrupted segment until its next
+  ordinary scheduling boundary, reserved checkpoint or return, all in one
+  scheduler action. No other handler on the node can run in between,
+  whatever the queue policy prefers.
+
+`faults.pause_fraction` sets the share of runs that reserve one pause,
+addressed as the k-th checkpoint the run reaches; it is `0` by default. A
+plan arms its own with `pause { node [, checkpoint] }` and ends it with
+`resume { node }`; a planned pause offers no automatic resume, and
+`pause -> advance_time -> resume` orders an actual interval of time the
+process spent held.
+
+A successful lease check can therefore go stale before its caller acts. The
+simulator preserves the result across the pause and lets the protocol take
+its next action; it does not revalidate on the protocol's behalf.
+
+Code between checkpoints and ordinary scheduling boundaries is
+instantaneous. The simulator does not model interruption between every pair
+of statements, and a finding carries that assumption: what it can hold is a
+process that read a clock and has not yet acted on the reading, at whatever
+call depth the read was written.
 
 ## Persistence
 

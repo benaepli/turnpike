@@ -29,8 +29,8 @@ deduplicated keep-list with your own expectedGain and expectedCost.
   NOT improve violation discovery, then score.
 - Reject (score 0): already-set (the proposed config value equals the
   current one); already-answered (the observation logs record the result);
-  out-of-bounds (harness, orchestrator, grader, evaluation protocol, or
-  the campaign arm block); protocol-specific (ask: what value would another
+  out-of-bounds (harness, grader, evaluation protocol, or the campaign arm
+  block); protocol-specific (ask: what value would another
   protocol need here, and how would anyone know?).
 - Dedupe against the pool; two proposals riding the same mechanism cannot
   both score high.

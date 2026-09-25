@@ -10,7 +10,7 @@
     {
       "id": "paxos-accept-stale-ballot",
       "spec": "bin/spur/panel/paxos_accept_stale_ballot.spur",
-      "cleanSpec": "bin/spur/Paxos.spur",
+      "cleanSpec": "bin/spur/panel/paxos_host.spur",
       "shape": "acceptor takes a pvalue from a ballot it already superseded, so one slot gets two commands",
       "faults": {
         "class": "F0",
@@ -69,7 +69,7 @@
         "eventsPerSec": 33.78496,
         "tauBestSec": 0.014
       },
-      "notes": "control violates at 4.8e-5; separation 345x. host ceiling is the strongest injection observed, not a measured bound.",
+      "notes": "control violates at 4.8e-5; separation 345x. host ceiling is the strongest injection observed, not a measured bound. Control is the pinned pre-repair host bin/spur/panel/paxos_host.spur: bin/spur/Paxos.spur carries the request-identity fix, so it is no longer one defect away from this member.",
       "wallSec": 10,
       "replicates": 3
     },

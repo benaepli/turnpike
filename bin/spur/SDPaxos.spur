@@ -256,8 +256,8 @@ role Node(cluster: Cluster) {
 
         println("Node {me} initialized. Peer count: {len(peers)}");
 
-        monitor_execution();
-        do_view_changes();
+        spawn monitor_execution();
+        spawn do_view_changes();
     }
 
     async fn RecoverInit() {
@@ -290,8 +290,8 @@ role Node(cluster: Cluster) {
 
         println("Node {me} recovered. Peer count: {len(peers)}");
 
-        monitor_execution();
-        do_view_changes();
+        spawn monitor_execution();
+        spawn do_view_changes();
     }
 
     fn is_valid(msg_view: int): bool {
@@ -373,11 +373,11 @@ role Node(cluster: Cluster) {
         var responses: chan<CAck> = make();
         for peer in peers {
             if peer != peers[me] {
-               send_c_accept(peer, c_accept, responses);
+               spawn send_c_accept(peer, c_accept, responses);
             }
         }
         if peers[me] == sequencer() {
-            handle_sequencer_accept(c_accept);
+            spawn handle_sequencer_accept(c_accept);
         }
 
         var count = 1;
@@ -401,7 +401,7 @@ role Node(cluster: Cluster) {
 
         for peer in peers {
             // This includes ourself.
-            send_c_commit(peer, c_commit);
+            spawn send_c_commit(peer, c_commit);
         }
 
     }
@@ -427,7 +427,7 @@ role Node(cluster: Cluster) {
         println("HandleClientWrite: key={msg.key}, uid={int_to_string(msg.uid)}");
 
         var response_ch: chan<Reply> = make();
-        submit(Command.Write(WriteArgs{
+        spawn submit(Command.Write(WriteArgs{
             key: msg.key,
             uid: msg.uid,
         }), response_ch);
@@ -454,7 +454,7 @@ role Node(cluster: Cluster) {
         println("HandleClientRead: key={msg.key}");
 
         var response_ch: chan<Reply> = make();
-        submit(Command.Read(msg.key), response_ch);
+        spawn submit(Command.Read(msg.key), response_ch);
         var result = <- response_ch;
 
         save_state();
@@ -500,7 +500,7 @@ role Node(cluster: Cluster) {
 
         // Now, we handle if we are the sequencer.
         if peers[me] == sequencer() {
-            handle_sequencer_accept(msg);
+            spawn handle_sequencer_accept(msg);
         }
 
 
@@ -523,7 +523,7 @@ role Node(cluster: Cluster) {
 
         c_instances = c_instances[msg.replica][msg.instance] := 
             CInstanceState.Committed(msg.command);
-        try_execute();
+        spawn try_execute();
         
         save_state();
     }   
@@ -774,7 +774,7 @@ role Node(cluster: Cluster) {
                 received_sequencer_message = false;
                 continue;
             }
-            start_view_change();
+            spawn start_view_change();
         }
     }
 
@@ -786,7 +786,7 @@ role Node(cluster: Cluster) {
         handle_new_view(msg.view);
 
         o_instances = o_instances[msg.instance] := OInstanceState.Committed(msg.assigned);
-        try_execute();
+        spawn try_execute();
         
         save_state();
     }
@@ -950,7 +950,7 @@ role Node(cluster: Cluster) {
             var responses: chan<CAck> = make();
             for peer in peers {
                 if peer != peers[me] {
-                    send_c_accept(peer, accept_msg, responses);
+                    spawn send_c_accept(peer, accept_msg, responses);
                 }
             }
 
@@ -975,7 +975,7 @@ role Node(cluster: Cluster) {
             };
 
             for peer in peers {
-                send_c_commit(peer, c_commit);
+                spawn send_c_commit(peer, c_commit);
             }
         }
         
@@ -1029,7 +1029,7 @@ role Node(cluster: Cluster) {
 
         var vote_ch: chan<(Node, Vote)> = make();
         for peer in peers {
-            send_v_request(peer, msg, vote_ch);
+            spawn send_v_request(peer, msg, vote_ch);
         }
 
         var votes_collected: map<Node, Vote> = {};
@@ -1046,7 +1046,7 @@ role Node(cluster: Cluster) {
 
             if count >= majority() {
                 println("View Change: majority achieved. Becoming sequencer.");
-                become_sequencer(votes_collected);
+                spawn become_sequencer(votes_collected);
                 break;
             }
         }
@@ -1187,7 +1187,7 @@ role Node(cluster: Cluster) {
         
         for peer in peers {
             if peer != peers[me] {
-                send_new_view_and_wait(peer, nv, ack_ch);
+                spawn send_new_view_and_wait(peer, nv, ack_ch);
             }
         }
 
@@ -1269,7 +1269,7 @@ role Node(cluster: Cluster) {
         }
         
         println("View Sync Complete. Executing.");
-        try_execute();
+        spawn try_execute();
         
         save_state();
     }

@@ -1,0 +1,53 @@
+{
+  "deploy": "Main",
+  "params": {
+    "n": {
+      "min": 5,
+      "max": 5,
+      "step": 1
+    }
+  },
+  "num_write_ops": {
+    "min": 8,
+    "max": 10,
+    "step": 2
+  },
+  "num_read_ops": {
+    "min": 5,
+    "max": 6,
+    "step": 1
+  },
+  "num_keys": {
+    "min": 1,
+    "max": 1,
+    "step": 1
+  },
+  "max_concurrent_writes": {
+    "min": 1,
+    "max": 2,
+    "step": 1
+  },
+  "num_crashes": {
+    "min": 0,
+    "max": 2,
+    "step": 1
+  },
+  "dependency_density": [
+    0.4
+  ],
+  "purgatory": {
+    "delay_probability": 0.2,
+    "delay_duration_range": [
+      5,
+      60
+    ]
+  },
+  "clock": {
+    "rho": 0.05,
+    "tt_width": 0,
+    "rates": "extremes"
+  },
+  "record_replay": true,
+  "num_runs_per_config": 10,
+  "max_iterations": 8000
+}

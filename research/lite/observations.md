@@ -9482,3 +9482,27 @@ times smaller on grid arms (4.3-5.6 session wide); selections and draws are
 unchanged. The firing floor of timer-admission-context-odds-probe still
 clears by about four orders; chunk records before and after this commit are
 not comparable on these three leaves.
+
+## Note: the autonomous loop is retired; its library is research/harness
+
+Written at the user's direction (superproject 0a1b184). The autonomous loop
+and its operator skill are gone; its state is kept at tags
+archive/auto-vr-loop and archive/pre-ablation. The modules the graders
+import moved from research/orchestrator to research/harness, and grader
+commands now run from there. VARIANT_BITS is in
+research/harness/src/decide.ts. The proposal lenses and the hypothesis JSON
+guide are prompts/lenses.md and prompts/hypothesis-json.md in the skill.
+
+The systemd check on spur-research-loop is replaced by
+tmp/loop/measuring.lock, which every measuring command of the lite and perf
+graders takes. A command that finds it held by a live process refuses and
+names the holder; a lock whose process is gone is reclaimed.
+
+Session harness-split-aa is the A/A check of that change: one chunk at seed
+1000, candidate a copy of the baseline binary at spur 68d7509. Baseline
+3,117,060 runs and candidate 3,085,380, zero violations on both; 10,280
+against 10,386 runs per second, and the cross-binary depth>=8 ratio 0.973
+sits inside the 5% layout floor. It also measured the first baseline chunk
+for the current grader version (cache 568c3423c102-...-s3728a521). The
+selftest's one failure, replay-tier-answered-overtake-cut reading a
+pauseReserved co-bit imbalance, is present unchanged at archive/pre-ablation.

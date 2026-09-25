@@ -1,0 +1,49 @@
+{
+    "deploy": "Sharded",
+    "params": {
+        "shards": {
+            "min": 2,
+            "max": 2,
+            "step": 1
+        },
+        "replicas": {
+            "min": 3,
+            "max": 3,
+            "step": 1
+        },
+        "routers": {
+            "min": 1,
+            "max": 1,
+            "step": 1
+        },
+        "route_keys": [
+            2
+        ]
+    },
+    "num_write_ops": {
+        "min": 2,
+        "max": 4,
+        "step": 1
+    },
+    "num_read_ops": {
+        "min": 2,
+        "max": 4,
+        "step": 2
+    },
+    "num_keys": {
+        "min": 2,
+        "max": 2,
+        "step": 1
+    },
+    "num_crashes": {
+        "min": 1,
+        "max": 2,
+        "step": 1
+    },
+    "dependency_density": [
+        0.0,
+        0.3
+    ],
+    "num_runs_per_config": 20,
+    "max_iterations": 6000
+}

@@ -30,11 +30,28 @@ type FunctionCrashCoverage struct {
 	CoverageFraction float64 `json:"coverage_fraction"`
 }
 
+// TimeStats counts what virtual time did, per run. `Runs` is the number of
+// runs that moved time or held a process at all, so a corpus whose specs
+// read no clock reports nothing rather than a row of zeros.
+type TimeStats struct {
+	Runs            int     `json:"runs"`
+	Advances        int     `json:"advances"`
+	AdvancesPerRun  float64 `json:"advances_per_run"`
+	MaxAdvancesRun  int     `json:"max_advances_in_a_run"`
+	Pauses          int     `json:"pauses"`
+	PausesPerRun    float64 `json:"pauses_per_run"`
+	MaxPausesRun    int     `json:"max_pauses_in_a_run"`
+	Resumes         int     `json:"resumes"`
+	// Pauses a crash discarded rather than resumed.
+	PausesCancelled int `json:"pauses_cancelled"`
+}
+
 // FaultResult holds the complete fault/crash analysis.
 type FaultResult struct {
 	CrashDuringFunc []CrashDuringFunction   `json:"crash_during_function"`
 	CrashDistance   *CrashDistanceStats     `json:"crash_distance"`
 	CrashCoverage   []FunctionCrashCoverage `json:"crash_coverage"`
+	Time            *TimeStats              `json:"time,omitempty"`
 }
 
 // ComputeFault computes crash proximity metrics by joining traces and
@@ -57,10 +74,15 @@ func ComputeFault(dbPath string, runID int64, batchSize int) (*FaultResult, erro
 	crashRuns := make(Counters)
 	var totalRuns int64
 	dist := crashDistanceAcc{}
+	vtime := TimeStats{}
 
 	for _, sel := range batches {
 		tSrc := reader.TracesSource(dbPath, sel)
 		eSrc := reader.ExecutionsSource(dbPath, sel)
+
+		if err := collectTime(db, eSrc, &vtime); err != nil {
+			return nil, err
+		}
 
 		if err := collectCrashDuringFunc(db, tSrc, eSrc, interrupts); err != nil {
 			return nil, err
@@ -110,6 +132,12 @@ func ComputeFault(dbPath string, runID int64, batchSize int) (*FaultResult, erro
 		return a.FunctionName < b.FunctionName
 	})
 
+	if vtime.Runs > 0 {
+		vtime.AdvancesPerRun = float64(vtime.Advances) / float64(vtime.Runs)
+		vtime.PausesPerRun = float64(vtime.Pauses) / float64(vtime.Runs)
+		result.Time = &vtime
+	}
+
 	if dist.count > 0 {
 		result.CrashDistance = &CrashDistanceStats{
 			CrashCount:   int(dist.count),
@@ -120,6 +148,50 @@ func ComputeFault(dbPath string, runID int64, batchSize int) (*FaultResult, erro
 	}
 
 	return result, nil
+}
+
+// collectTime folds one batch's time-advance and pause rows into acc. The
+// rows run no protocol code, so they are counted rather than joined against
+// the traces the way a crash is.
+func collectTime(db *sql.DB, eSrc string, acc *TimeStats) error {
+	query := fmt.Sprintf(`
+		WITH per_run AS (
+			SELECT run_id,
+			       SUM(CASE WHEN kind = 'ClockAdvance' THEN 1 ELSE 0 END) AS advances,
+			       SUM(CASE WHEN kind = 'Pause' AND action LIKE '%%/paused' THEN 1 ELSE 0 END) AS pauses,
+			       SUM(CASE WHEN kind = 'Resume' THEN 1 ELSE 0 END) AS resumes,
+			       SUM(CASE WHEN kind = 'Pause' AND action LIKE '%%/cancelled' THEN 1 ELSE 0 END) AS cancelled
+			FROM %[1]s
+			WHERE kind IN ('ClockAdvance', 'Pause', 'Resume')
+			GROUP BY run_id
+		)
+		SELECT COUNT(*), COALESCE(SUM(advances), 0), COALESCE(MAX(advances), 0),
+		       COALESCE(SUM(pauses), 0), COALESCE(MAX(pauses), 0),
+		       COALESCE(SUM(resumes), 0), COALESCE(SUM(cancelled), 0)
+		FROM per_run
+	`, eSrc)
+
+	var runs, advances, maxAdvances, pauses, maxPauses, resumes, cancelled int64
+	if err := db.QueryRow(query).Scan(
+		&runs, &advances, &maxAdvances, &pauses, &maxPauses, &resumes, &cancelled,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		return fmt.Errorf("failed to query time metrics: %w", err)
+	}
+	acc.Runs += int(runs)
+	acc.Advances += int(advances)
+	acc.Pauses += int(pauses)
+	acc.Resumes += int(resumes)
+	acc.PausesCancelled += int(cancelled)
+	if int(maxAdvances) > acc.MaxAdvancesRun {
+		acc.MaxAdvancesRun = int(maxAdvances)
+	}
+	if int(maxPauses) > acc.MaxPausesRun {
+		acc.MaxPausesRun = int(maxPauses)
+	}
+	return nil
 }
 
 // crashDistanceAcc merges per-batch crash-distance aggregates. Keeping the sum

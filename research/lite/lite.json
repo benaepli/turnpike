@@ -19,5 +19,5 @@
     "epochThroughputFloor": 0.9
   },
   "violationPrior": null,
-  "allowBigLoopBaselineRecord": true
+  "allowRecordedBaseline": true
 }

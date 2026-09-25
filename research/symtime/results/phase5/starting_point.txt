@@ -1,0 +1,13 @@
+# Starting point: three symbolic sessions per dataset with durations open,
+# session_seed 1000, 20 runs per config: the sampled start, another seed's
+# sampled start (time.start_salt = 7), and one fixed start (time.start =
+# fixed). Runs paired by id; decisions compared while both runs take the
+# same path (step, site, drawn and taken outcome). Share: decisions whose
+# witnessed outcome differs from the sampled start's. The fixtures have no
+# named durations, so open leaves them unchanged and they read 0.
+clean         vs salt: 10/753 (0.013)  vs fixed: 13/698 (0.019)
+recv_anchor   vs salt: 2/798 (0.003)  vs fixed: 2/758 (0.003)
+cached_flag   vs salt: 64/3320 (0.019)  vs fixed: 58/1137 (0.051)
+forms         vs salt: 0/17809 (0.000)  vs fixed: 0/17809 (0.000)
+idioms        vs salt: 0/72079 (0.000)  vs fixed: 0/72079 (0.000)
+crossclock    vs salt: 0/98003 (0.000)  vs fixed: 0/98003 (0.000)

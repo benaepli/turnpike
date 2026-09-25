@@ -1,0 +1,66 @@
+=== clean concrete
+assertions the solver refused 0
+comparisons 5849, other outcome open 4079, undecided within 1000 ms 0
+runs whose taken outcomes the solver did not confirm 0; constraints left in the undivided form 0
+runs where the answers differ from the difference solver 0
+solver time over the run's own wall time: median 0.382 p99 0.669 max 1.567
+  site 378 false: taken 35.33% of runs, open 86.90%
+  site 378 true: taken 81.17% of runs, open 93.40%
+=== clean durations
+assertions the solver refused 0
+comparisons 5849, other outcome open 4254, undecided within 1000 ms 0
+runs whose taken outcomes the solver did not confirm 0; constraints left in the undivided form 0
+solver time over the run's own wall time: median 0.360 p99 0.704 max 1.063
+  site 378 false: taken 35.33% of runs, open 88.33%
+  site 378 true: taken 81.17% of runs, open 93.40%
+=== clean rates
+assertions the solver refused 0
+comparisons 5849, other outcome open 4079, undecided within 1000 ms 0
+runs whose taken outcomes the solver did not confirm 0; constraints left in the undivided form 0
+solver time over the run's own wall time: median 0.415 p99 0.685 max 1.207
+  site 378 false: taken 35.33% of runs, open 86.90%
+  site 378 true: taken 81.17% of runs, open 93.40%
+=== recv_anchor concrete
+assertions the solver refused 0
+comparisons 5759, other outcome open 4861, undecided within 1000 ms 0
+runs whose taken outcomes the solver did not confirm 0; constraints left in the undivided form 0
+runs where the answers differ from the difference solver 0
+solver time over the run's own wall time: median 0.379 p99 0.715 max 1.922
+  site 378 false: taken 67.77% of runs, open 90.97%
+  site 378 true: taken 54.23% of runs, open 93.40%
+=== recv_anchor durations
+assertions the solver refused 0
+comparisons 5759, other outcome open 4864, undecided within 1000 ms 0
+runs whose taken outcomes the solver did not confirm 0; constraints left in the undivided form 0
+solver time over the run's own wall time: median 0.364 p99 0.751 max 1.351
+  site 378 false: taken 67.77% of runs, open 90.97%
+  site 378 true: taken 54.23% of runs, open 93.40%
+=== recv_anchor rates
+assertions the solver refused 0
+comparisons 5759, other outcome open 5057, undecided within 1000 ms 0
+runs whose taken outcomes the solver did not confirm 0; constraints left in the undivided form 0
+solver time over the run's own wall time: median 0.410 p99 0.758 max 2.214
+  site 378 false: taken 67.77% of runs, open 93.20%
+  site 378 true: taken 54.23% of runs, open 93.40%
+=== cached_flag concrete
+assertions the solver refused 0
+comparisons 24380, other outcome open 10540, undecided within 1000 ms 0
+runs whose taken outcomes the solver did not confirm 0; constraints left in the undivided form 0
+runs where the answers differ from the difference solver 0
+solver time over the run's own wall time: median 0.587 p99 24.734 max 36.742
+  site 954 false: taken 74.57% of runs, open 76.10%
+  site 954 true: taken 25.33% of runs, open 32.97%
+=== cached_flag durations
+assertions the solver refused 0
+comparisons 24380, other outcome open 19442, undecided within 1000 ms 0
+runs whose taken outcomes the solver did not confirm 0; constraints left in the undivided form 0
+solver time over the run's own wall time: median 0.598 p99 39.475 max 92.998
+  site 954 false: taken 74.57% of runs, open 76.10%
+  site 954 true: taken 25.33% of runs, open 68.53%
+=== cached_flag rates
+assertions the solver refused 0
+comparisons 24380, other outcome open 10540, undecided within 1000 ms 0
+runs whose taken outcomes the solver did not confirm 0; constraints left in the undivided form 0
+solver time over the run's own wall time: median 0.656 p99 32.750 max 55.110
+  site 954 false: taken 74.57% of runs, open 76.10%
+  site 954 true: taken 25.33% of runs, open 32.97%

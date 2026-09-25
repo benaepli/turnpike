@@ -30,10 +30,7 @@ cargo build --release --manifest-path spur/Cargo.toml --bin spur
 ```
 
 All four outputs are gitignored by design. The cargo line is the exact command
-the daemon and the implementer run; it builds only the workspace's default
-members. `spur-bench` is excluded from them because its default features pull
-in the Formulog build script, which needs java, z3, cmake, boost, oneTBB and
-Souffle; build it with `-p spur-bench` on a host that has those.
+the daemon and the implementer run.
 
 Run cargo from the superproject directory, as the daemon does. `spur/.cargo/config.toml`
 links with mold, and cargo applies it only when the working directory is

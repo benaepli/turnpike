@@ -1,0 +1,10 @@
+rates (us): pivots 0.478791  solver_work 0.00118118  exact_pivots 4.09929  exact_work 0.00134221  ops 0.140804
+calib-cached_flag.csv        share by wall 0.131 by units 0.172   worst run by wall 3.62 by units 0.37
+calib-chains.csv             share by wall 0.494 by units 0.825   worst run by wall 3.37 by units 3.50
+calib-clean.csv              share by wall 0.094 by units 0.149   worst run by wall 23.98 by units 0.60
+calib-crossclock.csv         share by wall 1.678 by units 7.503   worst run by wall 16.20 by units 145.90
+calib-forms.csv              share by wall 0.299 by units 0.270   worst run by wall 0.74 by units 0.56
+calib-idioms.csv             share by wall 0.415 by units 0.776   worst run by wall 2.47 by units 2.59
+calib-long.csv               share by wall 0.076 by units 0.089   worst run by wall 0.55 by units 0.17
+calib-recv_anchor.csv        share by wall 0.094 by units 0.156   worst run by wall 0.31 by units 0.59
+calib-webs.csv               share by wall 0.333 by units 0.491   worst run by wall 2.41 by units 2.94

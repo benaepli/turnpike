@@ -16,7 +16,7 @@
   block.
 - If the hypothesis declares a treatment bit, draw it by run id in
   `spur/spur-core/src/simulator/run_variant.rs` and register its name in
-  `VARIANT_BITS` (`research/orchestrator/src/decide.ts`).
+  `VARIANT_BITS` (`research/harness/src/decide.ts`).
 - Build: `cargo build --release --manifest-path spur/Cargo.toml --bin spur`;
   run `cargo test -p spur-core` if spur-core logic changed.
 - A short smoke run to confirm the mechanism fires is fine, writing to

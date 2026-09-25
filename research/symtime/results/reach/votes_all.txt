@@ -1,0 +1,237 @@
+== clean-1002 run_4109422
+election timeout 6291456
+lease read by node 1 at step 195 in its term 1, after node 0 became leader for term 2 at step 184
+  node 2 voted at step 183; last heard the reader at step 179, 3330962 ticks earlier on its clock: within the timeout
+  verdict: the vote rule refuses it
+== recv-1000 run_1489819
+election timeout 344064
+lease read by node 2 at step 114 in its term 3, after node 1 became leader for term 4 at step 98
+  node 0 voted at step 95; last heard the reader at step 93, 0 ticks earlier on its clock: within the timeout
+  verdict: the vote rule refuses it
+== recv-1001 run_1005288
+election timeout 688128
+lease read by node 2 at step 206 in its term 3, after node 1 became leader for term 4 at step 194
+  node 0 voted at step 193; last heard the reader at step 186, 760561 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== recv-1001 run_1275853
+election timeout 2752512
+lease read by node 2 at step 93 in its term 1, after node 0 became leader for term 2 at step 81
+  node 1 voted at step 80; last heard the reader at step 77, 1032192 ticks earlier on its clock: within the timeout
+  verdict: the vote rule refuses it
+== recv-1001 run_2256243
+election timeout 86016
+lease read by node 0 at step 80 in its term 1, after node 2 became leader for term 2 at step 65
+  node 1 voted at step 64; last heard the reader at step 58, 77414 ticks earlier on its clock: within the timeout
+  verdict: the vote rule refuses it
+== recv-1001 run_3473910
+election timeout 14680064
+lease read by node 0 at step 100 in its term 2, after node 2 became leader for term 3 at step 91
+  node 1 voted at step 90; last heard the reader at step 84, 642252 ticks earlier on its clock: within the timeout
+  verdict: the vote rule refuses it
+== recv-1001 run_353531
+election timeout 2752512
+lease read by node 2 at step 120 in its term 3, after node 1 became leader for term 4 at step 90
+  node 0 voted at step 87; last heard the reader at step 78, 2897380 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_1097960
+election timeout 229376
+lease read by node 2 at step 94 in its term 1, after node 1 became leader for term 2 at step 79
+  node 0 voted at step 78; last heard the reader at step 63, 266197 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_1320617
+election timeout 688128
+lease read by node 1 at step 126 in its term 3, after node 0 became leader for term 4 at step 111
+  node 2 voted at step 110; never heard from node 1 in term 3
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_1329821
+election timeout 12288
+lease read by node 2 at step 152 in its term 6, after node 1 became leader for term 7 at step 138
+  node 0 voted at step 137; last heard the reader at step 127, 13582 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_1381369
+election timeout 86016
+lease read by node 0 at step 132 in its term 3, after node 2 became leader for term 4 at step 120
+  node 1 voted at step 119; last heard the reader at step 110, 180633 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_1616783
+election timeout 86016
+lease read by node 1 at step 241 in its term 1, after node 2 became leader for term 2 at step 228
+  node 0 voted at step 227; last heard the reader at step 214, 90438 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_1631379
+election timeout 28672
+lease read by node 2 at step 198 in its term 3, after node 1 became leader for term 4 at step 178
+  node 0 voted at step 177; last heard the reader at step 165, 30181 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_183217
+election timeout 1376256
+lease read by node 2 at step 68 in its term 1, after node 0 became leader for term 2 at step 61
+  node 1 voted at step 60; last heard the reader at step 55, 1376256 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+lease read by node 2 at step 76 in its term 1, after node 0 became leader for term 2 at step 61
+  node 1 voted at step 60; last heard the reader at step 55, 1376256 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_2013802
+election timeout 14680064
+lease read by node 0 at step 157 in its term 3, after node 1 became leader for term 4 at step 148
+  node 2 voted at step 147; last heard the reader at step 135, 31674260 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_214958
+election timeout 1376256
+lease read by node 1 at step 154 in its term 5, after node 0 became leader for term 6 at step 141
+  node 2 voted at step 140; last heard the reader at step 130, 1973402 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_2351321
+election timeout 2752512
+lease read by node 0 at step 43 in its term 1, after node 1 became leader for term 2 at step 32
+  node 2 voted at step 31; last heard the reader at step 21, 3173323 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_2390421
+election timeout 10752
+lease read by node 0 at step 69 in its term 1, after node 1 became leader for term 2 at step 42
+  node 2 voted at step 41; last heard the reader at step 29, 11884 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_2602763
+election timeout 688128
+lease read by node 0 at step 118 in its term 3, after node 1 became leader for term 4 at step 103
+  node 2 voted at step 102; last heard the reader at step 94, 874944 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_2787800
+election timeout 176160768
+lease read by node 0 at step 44 in its term 1, after node 1 became leader for term 2 at step 39
+  node 2 voted at step 37; last heard the reader at step 30, 176160768 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+lease read by node 0 at step 56 in its term 1, after node 1 became leader for term 2 at step 39
+  node 2 voted at step 37; last heard the reader at step 30, 176160768 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_2863946
+election timeout 21504
+lease read by node 0 at step 68 in its term 1, after node 1 became leader for term 2 at step 55
+  node 2 voted at step 54; last heard the reader at step 45, 43748 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_2871566
+election timeout 458752
+lease read by node 0 at step 120 in its term 4, after node 2 became leader for term 5 at step 108
+  node 1 voted at step 105; last heard the reader at step 92, 688128 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_3248059
+election timeout 57344
+lease read by node 0 at step 202 in its term 5, after node 1 became leader for term 7 at step 190
+  node 2 voted at step 189; last heard the reader at step 174, 172032 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_3577468
+election timeout 44040192
+lease read by node 2 at step 164 in its term 3, after node 0 became leader for term 4 at step 144
+  node 1 voted at step 143; last heard the reader at step 135, 44040192 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_3775360
+election timeout 44040192
+lease read by node 2 at step 113 in its term 2, after node 1 became leader for term 3 at step 103
+  node 0 voted at step 102; last heard the reader at step 94, 57947621 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_563131
+election timeout 1376256
+lease read by node 1 at step 78 in its term 2, after node 0 became leader for term 3 at step 65
+  node 2 voted at step 64; last heard the reader at step 51, 1582694 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_732952
+election timeout 196608
+lease read by node 1 at step 54 in its term 1, after node 2 became leader for term 2 at step 44
+  node 0 voted at step 43; last heard the reader at step 31, 217304 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_757230
+election timeout 44040192
+lease read by node 2 at step 94 in its term 1, after node 0 became leader for term 2 at step 84
+  node 1 voted at step 83; last heard the reader at step 68, 44040192 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_841092
+election timeout 22020096
+lease read by node 2 at step 123 in its term 5, after node 0 became leader for term 6 at step 104
+  node 1 voted at step 103; last heard the reader at step 92, 31349662 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1000 run_853904
+election timeout 6144
+lease read by node 2 at step 248 in its term 6, after node 1 became leader for term 7 at step 238
+  node 0 voted at step 237; last heard the reader at step 225, 13581 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1001 run_1005288
+election timeout 688128
+lease read by node 2 at step 206 in its term 3, after node 1 became leader for term 4 at step 194
+  node 0 voted at step 193; last heard the reader at step 186, 1199743 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1001 run_1073145
+election timeout 22020096
+lease read by node 0 at step 83 in its term 1, after node 1 became leader for term 2 at step 68
+  node 2 voted at step 67; last heard the reader at step 59, 41838182 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1001 run_1244802
+election timeout 10752
+lease read by node 0 at step 54 in its term 1, after node 1 became leader for term 2 at step 41
+  node 2 voted at step 40; last heard the reader at step 32, 22579 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1001 run_2284447
+election timeout 5505024
+lease read by node 2 at step 90 in its term 3, after node 1 became leader for term 4 at step 79
+  node 0 voted at step 78; last heard the reader at step 72, 5780275 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1001 run_2303383
+election timeout 1376256
+lease read by node 2 at step 69 in its term 2, after node 1 became leader for term 3 at step 58
+  node 0 voted at step 57; last heard the reader at step 49, 1593560 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+lease read by node 2 at step 75 in its term 2, after node 1 became leader for term 3 at step 58
+  node 0 voted at step 57; last heard the reader at step 49, 1593560 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1001 run_2482502
+election timeout 49152
+lease read by node 2 at step 50 in its term 1, after node 1 became leader for term 2 at step 30
+  node 0 voted at step 29; never heard from node 2 in term 1
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1001 run_318525
+election timeout 22020096
+lease read by node 2 at step 117 in its term 1, after node 0 became leader for term 2 at step 102
+  node 1 voted at step 101; last heard the reader at step 86, 25554901 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1001 run_3512277
+election timeout 2752512
+lease read by node 1 at step 233 in its term 4, after node 2 became leader for term 5 at step 222
+  node 0 voted at step 221; last heard the reader at step 208, 2752512 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1001 run_3689630
+election timeout 5505024
+lease read by node 1 at step 81 in its term 1, after node 0 became leader for term 2 at step 68
+  node 2 voted at step 67; never heard from node 1 in term 1
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1001 run_420803
+election timeout 44040192
+lease read by node 1 at step 101 in its term 1, after node 2 became leader for term 2 at step 91
+  node 0 voted at step 90; last heard the reader at step 61, 44040192 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1001 run_726159
+election timeout 688128
+lease read by node 2 at step 29 in its term 1, after node 1 became leader for term 2 at step 25
+  node 0 voted at step 24; last heard the reader at step 9, 753664 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+lease read by node 2 at step 40 in its term 1, after node 1 became leader for term 2 at step 25
+  node 0 voted at step 24; last heard the reader at step 9, 753664 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-cached_flag-drawn-1001 run_726854
+election timeout 22020096
+lease read by node 0 at step 80 in its term 2, after node 1 became leader for term 3 at step 59
+  node 2 voted at step 52; last heard the reader at step 51, 22020096 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-recv_anchor-drawn-1000 run_2243085
+election timeout 1835008
+lease read by node 0 at step 70 in its term 1, after node 2 became leader for term 2 at step 55
+  node 1 voted at step 54; last heard the reader at step 45, 2028165 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-recv_anchor-drawn-1000 run_2919364
+election timeout 688128
+lease read by node 2 at step 160 in its term 3, after node 0 became leader for term 4 at step 146
+  node 1 voted at step 145; last heard the reader at step 143, 688128 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-fixed-recv_anchor-drawn-1001 run_1005288
+election timeout 688128
+lease read by node 2 at step 206 in its term 3, after node 1 became leader for term 4 at step 194
+  node 0 voted at step 193; last heard the reader at step 186, 760561 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it

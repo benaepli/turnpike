@@ -23,7 +23,7 @@
   may name a counter the change itself adds, not only one the explorer
   already emits.
 - Change only the subject: `spur/` or `scheduler_configs/loop/`. Never the
-  harness, the orchestrator, the grader, the evaluation protocol, or the
+  harness, the grader, the evaluation protocol, or the
   campaign arm set of `general_vr.json` (an arm change moves the unit of
   comparison and the grader refuses it).
 - Every hypothesis carries a frozen prediction in the template below. The
@@ -32,7 +32,7 @@
   randomized share of runs drawn by run id, off for the rest, and where
   the mechanism has a natural inverse, the inverse as a third cell. Tag the
   runs (`spur/spur-core/src/simulator/run_variant.rs`) and register each
-  bit's name in `VARIANT_BITS` (`research/orchestrator/src/decide.ts`) in
+  bit's name in `VARIANT_BITS` (`research/harness/src/decide.ts`) in
   the same commit. The untreated share is the control the merge is decided
   on, and it is what lets the protocol panel show, per cell, that a
   mechanism which helps VR hurts another protocol. A mechanism that cannot

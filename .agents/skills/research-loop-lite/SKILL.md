@@ -1,6 +1,6 @@
 ---
 name: research-loop-lite
-description: Run agent-driven research iterations against the VR-bug goal - propose, judge, implement in an isolated worktree, grade with the chunked lite grader, then decide merge/close/human on branch research/lite. Interactive by default; `autonomous` runs iterations without pause and decides everything itself. Only while the autonomous loop (spur-research-loop) is stopped.
+description: Run agent-driven research iterations against the VR-bug goal - propose, judge, implement in an isolated worktree, grade with the chunked lite grader, then decide merge/close/human on branch research/lite. Interactive by default; `autonomous` runs iterations without pause and decides everything itself.
 user-invocable: true
 ---
 
@@ -14,7 +14,7 @@ described in `docs/agent/lite-grader-status.md`; the loop's files and
 record formats in `research/lite/README.md`; subagent prompts in
 `prompts/` beside this file. Configuration is `research/lite/lite.json`
 and the goal is the file it names. Paths are relative to the project root;
-run grader commands from `research/orchestrator`. On hosts without
+run grader commands from `research/harness`. On hosts without
 subagents or worktrees, see `docs/agent/host-compatibility.md`.
 
 **This skill is not yours to edit, in any mode.** Neither this file nor
@@ -31,9 +31,9 @@ against your own bias. Rules turn into arguments about thresholds instead
 of thought about mechanisms. The written reason is the guard.
 
 Never edit: `porcupine/`, `research/oracle/`, `research/corpus/`,
-`traceanalyzer/`, `bin/spur/`, `research/orchestrator/`,
-`research/state.sqlite` (never even open it), and any `scheduler_configs/`
-outside `scheduler_configs/loop/`. Never push.
+`traceanalyzer/`, `bin/spur/`, `research/harness/` (except to add a
+treatment bit's entry to `VARIANT_BITS` in `research/harness/src/decide.ts`),
+and any `scheduler_configs/` outside `scheduler_configs/loop/`. Never push.
 
 ## Modes
 
@@ -56,16 +56,16 @@ user approves those. Write a short digest into
 `research/lite/observations.md` after every direction review so the user
 can catch up from the log alone.
 
-Hard stops in either mode: `spur-research-loop` is active; the grader's
-selftest fails and the failure is not one you can fix without touching
-what you must not edit; the main tree is not on `research/lite`.
+Hard stops in either mode: the grader's selftest fails and the failure is
+not one you can fix without touching what you must not edit; the main tree
+is not on `research/lite`.
 
 ## Preflight (every launch)
 
-1. `systemctl --user is-active spur-research-loop` prints `inactive` or
-   `failed`. Lite and the big loop share the CPU mask, `tmp/loop/`, and the
-   working tree, and the big loop needs the tree on `research/auto-vr`;
-   switching branches is the user's call.
+1. Nothing else is measuring on this host. Lite and perf share the CPU,
+   `tmp/loop/` and the working tree; `tmp/loop/measuring.lock` names the
+   holder while a perf round or another lite session measures, and every
+   measuring grader command refuses while a live process holds it.
 2. Read `lite.json`, the goal file, and the tails of
    `research/observations/OBSERVATIONS.md`, `research/lite/observations.md`,
    and `research/lite/pool.md`.
@@ -84,9 +84,8 @@ what you must not edit; the main tree is not on `research/lite`.
 1. **Propose.** Spawn the proposer with `prompts/proposer.md`, the goal
    file, as much of both observation logs as this round needs, the current
    `general_vr.json`, the existing pool ids, one lens rotating through
-   `PROPOSAL_LENSES` in `research/orchestrator/src/agents.ts`, the
-   `HYPOTHESIS_JSON_GUIDE` constant from the same file as output format,
-   and a focus directive when you have one.
+   `prompts/lenses.md`, `prompts/hypothesis-json.md` as output format, and
+   a focus directive when you have one.
 2. **Judge.** Spawn the judge as a read-capable subagent with
    `prompts/judge.md`, the candidates stripped of origin marks and steering
    text, the pool, and the recent tails of both observation logs. Write
@@ -96,8 +95,9 @@ what you must not edit; the main tree is not on `research/lite`.
    `prompts/implementer.md`, the goal file, the hypothesis, and
    `research/STYLE.md` in full. Its deliverable is `tmp/loop/lite/<name>/`.
    Read `spur.patch` and `super.patch` yourself before grading: the diff
-   matches the hypothesis, stays in `spur/` and `scheduler_configs/loop/`,
-   leaves the `campaign` block alone, and draws the bit by run id.
+   matches the hypothesis, stays in `spur/` and `scheduler_configs/loop/`
+   apart from new `VARIANT_BITS` entries, leaves the `campaign` block
+   alone, and draws the bit by run id.
 4. **Grade** (below).
 5. **Decide** (below).
 6. **Log.** Append to `observations.md` and `decisions.jsonl`, update
@@ -227,9 +227,10 @@ Main tree, branch `research/lite`, clean in both the superproject and
 
 ## Coexistence
 
-If `spur-research-loop` becomes active mid-session, stop grading (do not
-call `chunk` again) and tell the user. Candidates live in implementer
+A grader command that finds the measuring lock held refuses and names the
+holder: a perf round or another lite session is measuring. Wait for it or
+tell the user; never delete a lock whose process is alive, since two
+measurements on one host measure each other. Candidates live in implementer
 worktrees; never edit the subject in the main tree. Baseline caches under
 `research/lite/baselines/` are the expensive shared asset; never delete
-them casually. Log files are committed on `research/lite` only, never on
-`research/auto-vr` or a `hyp/*` branch.
+them casually. Log files are committed on `research/lite` only.

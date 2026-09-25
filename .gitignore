@@ -17,18 +17,12 @@ tmp/
 output_*/
 ab/
 traceanalyzer/main
-# research loop
-research/state.sqlite*
+# research loops
 research/logs/
 research/corpus/*/
 tmp/loop/
-research/orchestrator/node_modules/
-research/orchestrator/dist/
-research/journal.jsonl
-research/STATUS.md
-research/STOP
-research/DRAIN
-research/PARKED
+research/harness/node_modules/
+research/harness/dist/
 # generated Claude worktrees (live agent state, never tracked)
 .claude/worktrees/
 research/lite/state/panel/*/*/runs.json

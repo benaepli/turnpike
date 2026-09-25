@@ -1,0 +1,33 @@
+cached_flag all: chunks 1 runs 2023466 wall 120s runs/s 16862 failed 0
+  confirmed 13 (390.0/wall-hour, 1 in 155651 runs)  unconfirmed 0  other unknown 0
+  solver share 0.013  comparisons/run 11.6  flips drawn 0.500 taken 0.202 refused 0.299  runs with a flip 0.314
+  widenings 0  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.335  per run 69.4
+  open share 0.403 (9437872 of 23422606 trials)
+cached_flag concrete: chunks 2 runs 16734800 wall 600s runs/s 27891 failed 0
+  confirmed 54 (324.0/wall-hour, 1 in 309904 runs)  unconfirmed 0  other unknown 0
+cached_flag drawn: chunks 2 runs 8945307 wall 600s runs/s 14909 failed 0
+  confirmed 51 (306.0/wall-hour, 1 in 175398 runs)  unconfirmed 0  other unknown 0
+  solver share 0.010  comparisons/run 11.4  flips drawn 0.500 taken 0.202 refused 0.298  runs with a flip 0.313
+  widenings 0  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.337  per run 69.3
+clean all: chunks 1 runs 2015629 wall 120s runs/s 16796 failed 0
+  confirmed 0 (0.0/wall-hour, 1 in 2015629 runs)  unconfirmed 0  other unknown 0
+  solver share 0.004  comparisons/run 2.0  flips drawn 0.500 taken 0.387 refused 0.113  runs with a flip 0.630
+  widenings 0  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.372  per run 70.8
+  open share 0.774 (3114855 of 4026889 trials)
+clean concrete: chunks 2 runs 16004674 wall 600s runs/s 26674 failed 0
+  confirmed 0 (0.0/wall-hour, 1 in 16004674 runs)  unconfirmed 0  other unknown 0
+clean drawn: chunks 2 runs 8886211 wall 600s runs/s 14810 failed 0
+  confirmed 2 (12.0/wall-hour, 1 in 4443106 runs)  unconfirmed 0  other unknown 0
+  solver share 0.003  comparisons/run 2.0  flips drawn 0.500 taken 0.387 refused 0.113  runs with a flip 0.630
+  widenings 0  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.374  per run 70.6
+recv_anchor all: chunks 1 runs 1981529 wall 120s runs/s 16512 failed 0
+  confirmed 1 (30.0/wall-hour, 1 in 1981529 runs)  unconfirmed 0  other unknown 0
+  solver share 0.004  comparisons/run 2.0  flips drawn 0.500 taken 0.420 refused 0.080  runs with a flip 0.670
+  widenings 0  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.312  per run 69.4
+  open share 0.840 (3330530 of 3963783 trials)
+recv_anchor concrete: chunks 2 runs 16329612 wall 600s runs/s 27216 failed 0
+  confirmed 1 (6.0/wall-hour, 1 in 16329612 runs)  unconfirmed 0  other unknown 0
+recv_anchor drawn: chunks 2 runs 8732748 wall 600s runs/s 14554 failed 0
+  confirmed 6 (36.0/wall-hour, 1 in 1455458 runs)  unconfirmed 0  other unknown 0
+  solver share 0.003  comparisons/run 2.0  flips drawn 0.500 taken 0.420 refused 0.080  runs with a flip 0.670
+  widenings 0  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.313  per run 69.3

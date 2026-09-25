@@ -1,0 +1,45 @@
+cached_flag all: chunks 1 runs 1614329 wall 120s runs/s 13452 failed 0
+  confirmed 14 (420.0/wall-hour, 1 in 115309 runs)  unconfirmed 0  other unknown 0
+  solver share 0.119  comparisons/run 14.2  flips drawn 0.500 taken 0.228 refused 0.272  runs with a flip 0.686
+  widenings 1161629  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.294  per run 69.0
+  open share 0.456 (10413512 of 22855056 trials)
+cached_flag concrete: chunks 2 runs 15859014 wall 600s runs/s 26432 failed 0
+  confirmed 30 (180.0/wall-hour, 1 in 528634 runs)  unconfirmed 0  other unknown 0
+cached_flag drawn: chunks 2 runs 7356564 wall 600s runs/s 12261 failed 0
+  confirmed 35 (210.0/wall-hour, 1 in 210188 runs)  unconfirmed 0  other unknown 0
+  solver share 0.115  comparisons/run 14.0  flips drawn 0.500 taken 0.228 refused 0.272  runs with a flip 0.688
+  widenings 4081355  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.296  per run 68.9
+cached_flag open: chunks 2 runs 6303142 wall 600s runs/s 10505 failed 0
+  confirmed 36 (216.0/wall-hour, 1 in 175087 runs)  unconfirmed 0  other unknown 0
+  solver share 0.144  comparisons/run 15.2  flips drawn 0.500 taken 0.402 refused 0.098  runs with a flip 0.827
+  widenings 4149079  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.317  per run 67.7
+clean all: chunks 1 runs 1606923 wall 120s runs/s 13389 failed 0
+  confirmed 0 (0.0/wall-hour, 1 in 1606923 runs)  unconfirmed 0  other unknown 0
+  solver share 0.117  comparisons/run 4.5  flips drawn 0.500 taken 0.353 refused 0.147  runs with a flip 0.830
+  widenings 1342822  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.331  per run 70.5
+  open share 0.706 (5114996 of 7248990 trials)
+clean concrete: chunks 2 runs 15534911 wall 600s runs/s 25891 failed 0
+  confirmed 0 (0.0/wall-hour, 1 in 15534911 runs)  unconfirmed 0  other unknown 0
+clean drawn: chunks 2 runs 7279692 wall 600s runs/s 12133 failed 0
+  confirmed 0 (0.0/wall-hour, 1 in 7279692 runs)  unconfirmed 0  other unknown 0
+  solver share 0.114  comparisons/run 4.5  flips drawn 0.500 taken 0.353 refused 0.147  runs with a flip 0.830
+  widenings 4806280  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.335  per run 70.2
+clean open: chunks 2 runs 6467906 wall 600s runs/s 10780 failed 0
+  confirmed 0 (0.0/wall-hour, 1 in 6467906 runs)  unconfirmed 0  other unknown 0
+  solver share 0.127  comparisons/run 4.4  flips drawn 0.500 taken 0.366 refused 0.134  runs with a flip 0.840
+  widenings 4276788  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.329  per run 69.3
+recv_anchor all: chunks 1 runs 1568087 wall 120s runs/s 13066 failed 0
+  confirmed 0 (0.0/wall-hour, 1 in 1568087 runs)  unconfirmed 0  other unknown 0
+  solver share 0.124  comparisons/run 4.6  flips drawn 0.500 taken 0.375 refused 0.125  runs with a flip 0.848
+  widenings 1334205  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.271  per run 69.4
+  open share 0.750 (5432515 of 7247132 trials)
+recv_anchor concrete: chunks 2 runs 15926799 wall 600s runs/s 26545 failed 0
+  confirmed 0 (0.0/wall-hour, 1 in 15926799 runs)  unconfirmed 0  other unknown 0
+recv_anchor drawn: chunks 2 runs 7161536 wall 600s runs/s 11935 failed 0
+  confirmed 3 (18.0/wall-hour, 1 in 2387179 runs)  unconfirmed 0  other unknown 0
+  solver share 0.124  comparisons/run 4.6  flips drawn 0.500 taken 0.375 refused 0.125  runs with a flip 0.848
+  widenings 4897944  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.273  per run 69.0
+recv_anchor open: chunks 2 runs 6351820 wall 600s runs/s 10586 failed 0
+  confirmed 4 (24.0/wall-hour, 1 in 1587955 runs)  unconfirmed 0  other unknown 0
+  solver share 0.134  comparisons/run 4.5  flips drawn 0.500 taken 0.378 refused 0.122  runs with a flip 0.848
+  widenings 4344159  conceded runs 0  barrier fallbacks 0  implicit 0  shadow releases per timed fire 2.279  per run 68.4

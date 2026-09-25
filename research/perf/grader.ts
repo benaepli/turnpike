@@ -3,8 +3,8 @@
 // of the campaign workload. Whoever calls it decides between invocations
 // whether to buy another, so stopping early is not calling `round` again.
 //
-// Run from research/orchestrator so its node_modules resolve:
-//   cd research/orchestrator && npx tsx ../perf/grader.ts <command> [--flags]
+// Run from research/harness so its node_modules resolve:
+//   cd research/harness && npx tsx ../perf/grader.ts <command> [--flags]
 //
 // Commands:
 //   start    --name <slug> --cand-bin <path> --base-bin <path>
@@ -33,18 +33,19 @@ import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 
-import { loadPolicy, type Policy } from "../orchestrator/src/policy.js";
+import { loadPolicy, type Policy } from "../harness/src/policy.js";
+import { holdMeasuringLock } from "../harness/src/measuring.js";
 import {
-  ROOT, cleanupDir, explore, freeDiskGb, materializeConfig, readSessionSibling,
+  ROOT, cleanupDir, explore, freeDiskGb, materializeConfig, measurementCheckingError, readSessionSibling,
   readUtilizationSibling, resolveRoot, run, runsTable, templateHasCampaign,
-} from "../orchestrator/src/runners.js";
-import { SLOW_CHUNK_FACTOR } from "../orchestrator/src/sequential.js";
+} from "../harness/src/runners.js";
+import { SLOW_CHUNK_FACTOR } from "../harness/src/sequential.js";
 import {
   NON_DECLARABLE_BITS, VARIANT_BITS, complementCoBits, invariantCoBits, probeFreeScope, variantBitsMissingFromSource,
-} from "../orchestrator/src/decide.js";
-import type { RunRow, VariantMetrics } from "../orchestrator/src/schemas.js";
+} from "../harness/src/decide.js";
+import type { RunRow, VariantMetrics } from "../harness/src/schemas.js";
 
-// The orchestrator modules narrate progress on stdout; this process promises
+// The harness modules narrate progress on stdout; this process promises
 // its caller a single JSON object there, so their narration moves to stderr.
 console.log = (...args: unknown[]): void => { console.error(...args); };
 
@@ -82,7 +83,7 @@ function perfConfig(): PerfConfig {
   return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8")) as PerfConfig;
 }
 
-// The orchestrator's policy file carries the free-disk floor every command
+// The harness policy file carries the free-disk floor every command
 // honours.
 function policyFor(): Policy {
   const { policy } = loadPolicy(path.join(ROOT, "research", "policy.json"));
@@ -135,6 +136,7 @@ function buildConfigShaOf(spurDir: string): string {
 // content of the campaign template, the spec, the thread count and the wall
 // budget. A depth scale plays no part here, so there is no analyzer term.
 interface BaselineIdentity {
+  checking?: "enabled-continue-v1";
   spurTree: string;
   buildConfigSha: string;
   campaignSha: string;
@@ -145,6 +147,7 @@ interface BaselineIdentity {
 
 function identityFor(baseSpurDir: string, campaignTemplate: string, cfg: PerfConfig): BaselineIdentity {
   return {
+    checking: "enabled-continue-v1",
     spurTree: spurTreeOf(baseSpurDir),
     buildConfigSha: buildConfigShaOf(baseSpurDir),
     campaignSha: sha256(fs.readFileSync(campaignTemplate, "utf8")),
@@ -157,12 +160,12 @@ function identityFor(baseSpurDir: string, campaignTemplate: string, cfg: PerfCon
 function identityKey(id: BaselineIdentity): string {
   return [
     id.spurTree.slice(0, 12), id.buildConfigSha.slice(0, 8), id.campaignSha.slice(0, 8), id.specSha.slice(0, 8),
-    id.rayonThreads, id.campaignWallSec,
+    id.rayonThreads, id.campaignWallSec, id.checking ?? "legacy",
   ].join("|");
 }
 
 function cacheFileFor(id: BaselineIdentity): string {
-  return path.join(BASELINE_DIR, `${id.spurTree.slice(0, 12)}-${id.rayonThreads}-${id.campaignSha.slice(0, 8)}-${id.campaignWallSec}-b${id.buildConfigSha.slice(0, 8)}.json`);
+  return path.join(BASELINE_DIR, `${id.spurTree.slice(0, 12)}-${id.rayonThreads}-${id.campaignSha.slice(0, 8)}-${id.campaignWallSec}-b${id.buildConfigSha.slice(0, 8)}-${id.checking ?? "legacy"}.json`);
 }
 
 interface BaselineCache {
@@ -254,15 +257,6 @@ function loadRound(name: string, index: number): Measurement[] {
   return (JSON.parse(fs.readFileSync(file, "utf8")) as { measurements: Measurement[] }).measurements;
 }
 
-function refuseIfLoopActive(): void {
-  let out = "";
-  try {
-    out = execFileSync("systemctl", ["--user", "is-active", "spur-research-loop"]).toString().trim();
-  } catch {
-    return;
-  }
-  if (out === "active") throw new Error("the autonomous loop (spur-research-loop) is active; the perf grader must not measure beside it");
-}
 
 function diskGuard(policy: Policy): void {
   const free = freeDiskGb(ROOT);
@@ -346,7 +340,7 @@ function declaredTreatment(flags: Map<string, string>): { bit: number; name: str
   if (!Number.isInteger(bit) || bit <= 0 || (bit & (bit - 1)) !== 0) throw new Error(`--treatment-bit must be a power of two, got ${raw}`);
   const known = VARIANT_BITS.find((v) => v.bit === bit);
   if (known === undefined) {
-    throw new Error(`bit ${bit} is not named in VARIANT_BITS (research/orchestrator/src/decide.ts); add it in the same commit that adds the tag to spur/spur-core/src/simulator/run_variant.rs`);
+    throw new Error(`bit ${bit} is not named in VARIANT_BITS (research/harness/src/decide.ts); add it in the same commit that adds the tag to spur/spur-core/src/simulator/run_variant.rs`);
   }
   if (NON_DECLARABLE_BITS.includes(bit)) {
     throw new Error(`bit ${bit} (${known.name}) names an instrument or an outcome, not a treatment randomized by run id; it cannot be a session's primary`);
@@ -407,7 +401,7 @@ export function flatCounters(raw: Record<string, unknown> | null): Record<string
 function workloadConfig(template: string, outPath: string, seed: number, wallSec: number): void {
   const raw = JSON.parse(fs.readFileSync(template, "utf8")) as Record<string, unknown>;
   const campaign = { ...(raw["campaign"] as Record<string, unknown>), wall_budget_sec: wallSec };
-  materializeConfig(template, outPath, { sessionSeed: seed, extra: { campaign } });
+  materializeConfig(template, outPath, { sessionSeed: seed, extra: { campaign }, checkAllRuns: true });
 }
 
 async function measure(
@@ -426,6 +420,8 @@ async function measure(
       explorer: "campaign",
     });
     if (!r.ok && !r.timedOut) return { measurement: null, error: `${side} ${workload} round ${index} failed: ${r.stderr.slice(-400)}` };
+    const checkingError = measurementCheckingError(dir);
+    if (checkingError !== null) return { measurement: null, error: `${side} ${workload} round ${index}: ${checkingError}` };
     const session = readSessionSibling(dir);
     if (session === null) return { measurement: null, error: `${side} ${workload} round ${index} wrote no session summary` };
     const rows = await runsTable(dir);
@@ -907,7 +903,7 @@ function baseSpurDirOf(flags: Map<string, string>): string {
 async function cmdStart(flags: Map<string, string>): Promise<void> {
   const cfg = perfConfig();
   const policy = policyFor();
-  refuseIfLoopActive();
+  holdMeasuringLock("perf", "start", flags.get("name"));
   diskGuard(policy);
   const name = need(flags, "name");
   if (!/^[a-z0-9][a-z0-9-]{1,60}$/.test(name)) throw new Error(`session name must be a kebab-case slug, got ${name}`);
@@ -965,7 +961,10 @@ async function cmdRound(flags: Map<string, string>): Promise<void> {
   const cfg = perfConfig();
   const policy = policyFor();
   const state = loadState(need(flags, "name"));
-  refuseIfLoopActive();
+  holdMeasuringLock("perf", "round", flags.get("name"));
+  if (state.identity.checking !== "enabled-continue-v1") {
+    throw new Error("this performance session used a different checking policy; start a new session before adding rounds");
+  }
   diskGuard(policy);
   if (state.rounds.length >= cfg.budgets.maxRounds) {
     throw new Error(`session ${state.name} already holds ${state.rounds.length} rounds, at the cap of ${cfg.budgets.maxRounds}`);
@@ -1039,7 +1038,7 @@ async function cmdFinish(flags: Map<string, string>): Promise<void> {
 async function cmdBaseline(flags: Map<string, string>): Promise<void> {
   const cfg = perfConfig();
   const policy = policyFor();
-  refuseIfLoopActive();
+  holdMeasuringLock("perf", "baseline", flags.get("name"));
   diskGuard(policy);
   const target = Number(need(flags, "rounds"));
   if (!Number.isInteger(target) || target < 1 || target > cfg.budgets.maxRounds) {
@@ -1174,6 +1173,8 @@ async function recordProfile(cfg: PerfConfig, binary: string, wallSec: number, c
     if (!fs.existsSync(perfData)) {
       return failed(`perf record wrote no samples${rec.timedOut ? " before the cap" : ""}: ${rec.stderr.slice(-400)}`);
     }
+    const checkingError = measurementCheckingError(dir);
+    if (checkingError !== null) return failed(checkingError);
     const rep = await run("perf", [
       "report", "--stdio", "--percent-limit", String(percentLimit),
       "--no-children", "--no-inline", "-g", "none", "-i", perfData,
@@ -1217,7 +1218,7 @@ function profileLabelOf(binary: string, spurFlag: string | undefined, name: stri
 
 async function cmdProfile(flags: Map<string, string>): Promise<void> {
   const cfg = perfConfig();
-  refuseIfLoopActive();
+  holdMeasuringLock("perf", "profile", flags.get("name"));
   diskGuard(policyFor());
   const binary = path.resolve(flags.get("binary") ?? path.join(ROOT, "spur", "target", "release", "spur"));
   if (!fs.existsSync(binary)) throw new Error(`${binary} does not exist; build it first`);
@@ -1452,6 +1453,8 @@ async function cmdSelftest(): Promise<void> {
   // quantity, and nothing else.
   const idA: BaselineIdentity = { spurTree: "aaaaaaaaaaaa", buildConfigSha: "bbbbbbbb", campaignSha: "cccccccc", specSha: "ssssssss", rayonThreads: 30, campaignWallSec: 120 };
   check(identityKey(idA) === identityKey({ ...idA }), "an identity is its own key");
+  check(identityKey(idA) !== identityKey({ ...idA, checking: "enabled-continue-v1" }), "checking changes the measurement identity");
+  check(cacheFileFor(idA) !== cacheFileFor({ ...idA, checking: "enabled-continue-v1" }), "checking measurements use a separate baseline cache");
   check(identityKey(idA) !== identityKey({ ...idA, rayonThreads: 29 }), "a different thread count is a different quantity");
   check(identityKey(idA) !== identityKey({ ...idA, specSha: "tttttttt" }), "a different spec is a different quantity");
   check(cacheFileFor(idA) !== cacheFileFor({ ...idA, campaignWallSec: 240 }), "a different campaign wall budget writes a different cache file");

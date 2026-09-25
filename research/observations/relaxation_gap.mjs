@@ -20,7 +20,7 @@
 //        [--out research/observations/RELAXATION_GAP.md]
 //   node research/observations/relaxation_gap.mjs --selftest
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -68,13 +68,14 @@ const tagOf = (name) => name.replace(/[^a-z0-9]+/gi, "_");
 function measure(name, plan, spec, model, threads, keep) {
   const tag = tagOf(name) + "_" + plan.num_runs;
   const planPath = path.join(WORK, `${tag}.json`), out = path.join(WORK, tag);
-  writeFileSync(planPath, JSON.stringify(plan, null, 2) + "\n");
+  writeFileSync(planPath, JSON.stringify({ ...plan, linearizability: { ...plan.linearizability, enabled: true, stop_on_violation: false } }, null, 2) + "\n");
   rmSync(out, { recursive: true, force: true });
   const started = Date.now();
-  execFileSync(SPUR, ["run-plan", spec, "-p", planPath, "-o", out, "-y"], { cwd: ROOT, stdio: ["ignore", "ignore", "ignore"], env: { ...process.env, RAYON_NUM_THREADS: String(threads) } });
-  let json;
-  try { json = JSON.parse(execFileSync(CHECKER, ["-input", out, "-model", model, "-timeout", "10000"], { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })); }
-  catch (e) { json = JSON.parse(e.stdout || "{}"); }
+  const execution = spawnSync(SPUR, ["run-plan", spec, "-p", planPath, "-o", out, "-y"], { cwd: ROOT, stdio: ["ignore", "ignore", "ignore"], env: { ...process.env, RAYON_NUM_THREADS: String(threads) } });
+  if (![0, 2, 4].includes(execution.status)) throw execution.error ?? new Error(`run-plan exited ${execution.status}; output: ${out}`);
+  const checked = spawnSync(CHECKER, ["-input", out, "-model", model, "-timeout", "10000"], { cwd: ROOT, encoding: "utf8" });
+  if (![0, 2, 4].includes(checked.status)) throw checked.error ?? new Error(`checker exited ${checked.status}: ${checked.stderr}`);
+  const json = JSON.parse(checked.stdout);
   if (!keep) rmSync(out, { recursive: true, force: true });
   return { name, runs: json.total_runs ?? 0, violations: json.violations ?? 0, ids: json.violating_run_ids ?? [], wallSec: (Date.now() - started) / 1000, dir: keep ? out : null };
 }
